@@ -16,10 +16,24 @@ Navegador (GitHub Pages)  ──POST /chat──▶  Cloudflare Worker  ──�
 - **Site** (`index.html`, `css/`, `js/`): HTML, CSS e JavaScript puros, sem build. O olho é desenhado num `<canvas>` (`js/eye.js`).
 - **Servidor** (`worker/`): um Cloudflare Worker que roda o modelo Llama 3.3 70B no **Workers AI**, a IA da própria Cloudflare, dentro da cota diária gratuita.
 
+### Contas, histórico e memória
+
+- **Contas:** cadastro e login com e-mail e senha. A senha nunca é salva, só um hash PBKDF2 com sal. O login gera um token de sessão válido por 30 dias.
+- **Histórico:** cada conversa e mensagem fica salva no banco **Cloudflare D1** (grátis), e aparece na barra lateral para abrir, continuar ou apagar.
+- **Memória:** depois de cada mensagem, um modelo menor extrai fatos duradouros sobre a pessoa (nome, profissão, gostos…). Eles entram nas próximas conversas e podem ser vistos ou apagados no menu **Memórias**.
+
+O formato do banco está em [`worker/schema.sql`](worker/schema.sql). Para ver os dados: painel da Cloudflare → **Storage & Databases → D1 → saturnia-db → Console**, ou pelo terminal:
+
+```bash
+cd worker
+npx wrangler d1 execute saturnia-db --remote --command "SELECT name, email, created_at FROM users"
+```
+
 ### Proteções do servidor
 
 - Só aceita pedidos vindos dos endereços em `ALLOWED_ORIGINS` (`worker/wrangler.toml`)
-- Limite de 15 mensagens por minuto por IP
+- Cada pessoa só acessa as próprias conversas e memórias
+- Limite de 15 mensagens por minuto por usuário e de 10 tentativas de login por minuto por IP
 - Limite de tamanho das mensagens e do histórico
 - Quando a cota gratuita do dia acaba, o chat avisa e volta a funcionar no dia seguinte, sem cobrança
 
@@ -32,15 +46,17 @@ Depois, no terminal:
 ```bash
 cd worker
 npm install
-npx wrangler login      # abre o navegador para entrar na Cloudflare
-npx wrangler deploy     # publica e mostra o endereço do servidor
+npx wrangler login                                   # abre o navegador para entrar na Cloudflare
+npx wrangler d1 create saturnia-db                   # cria o banco; copie o database_id para o wrangler.toml
+npx wrangler d1 execute saturnia-db --remote --file=schema.sql   # cria as tabelas
+npx wrangler deploy                                  # publica e mostra o endereço do servidor
 ```
 
-O `deploy` mostra um endereço como `https://saturnia.SEU-SUBDOMINIO.workers.dev`. Coloque-o em `js/config.js`, terminando em `/chat`:
+O `deploy` mostra um endereço como `https://saturnia.SEU-SUBDOMINIO.workers.dev`. Coloque-o em `js/config.js`, sem barra no final:
 
 ```js
 window.SATURNIA_CONFIG = {
-  apiUrl: 'https://saturnia.SEU-SUBDOMINIO.workers.dev/chat',
+  apiBase: 'https://saturnia.SEU-SUBDOMINIO.workers.dev',
 };
 ```
 
@@ -60,7 +76,7 @@ npx wrangler dev        # http://localhost:8787 (usa o Workers AI da sua conta)
 npx serve -l 5500 .     # http://localhost:5500
 ```
 
-Em `js/config.js`, use `http://localhost:8787/chat` enquanto testa.
+Em `js/config.js`, use `http://localhost:8787` enquanto testa.
 
 ## Estrutura
 
@@ -72,10 +88,12 @@ saturnia/
 │   ├── config.js     ← endereço do servidor
 │   ├── eye.js        ← o olho de partículas
 │   ├── markdown.js   ← formatação segura das respostas
-│   └── app.js        ← lógica do chat
+│   └── app.js        ← login, conversas, memórias e chat
 ├── assets/favicon.svg
+├── version.json      ← versão publicada (atualização automática)
 └── worker/
-    ├── src/index.js  ← servidor (Cloudflare Worker + Workers AI)
+    ├── src/index.js  ← servidor (Cloudflare Worker + Workers AI + D1)
+    ├── schema.sql    ← tabelas do banco
     ├── wrangler.toml
     └── package.json
 ```

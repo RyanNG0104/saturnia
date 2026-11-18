@@ -8,5 +8,5 @@
    ========================================================= */
 
 window.SATURNIA_CONFIG = {
-  apiUrl: '',
+  apiUrl: 'https://saturnia.ryanng0104.workers.dev/chat',
 };

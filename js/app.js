@@ -2,6 +2,28 @@
    SaturnIA · lógica do chat
    ========================================================= */
 
+/* ---------- Atualização automática ----------
+   O GitHub Pages deixa a página em cache por 10 minutos. Ao abrir, a
+   SaturnIA confere version.json (sempre buscado sem cache); se houver
+   uma versão mais nova publicada, ela baixa a página atual e recarrega
+   uma única vez. A cada publicação, aumente APP_VERSION e version.json juntos. */
+(function checkForUpdate() {
+  const APP_VERSION = '5';
+  fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((data) => {
+      if (!data || data.version === APP_VERSION) return;
+      let tried = null;
+      try { tried = sessionStorage.getItem('saturnia-reloaded-for'); } catch (e) {}
+      if (tried === data.version) return; // já tentou, não entra em loop
+      try { sessionStorage.setItem('saturnia-reloaded-for', data.version); } catch (e) {}
+      fetch(location.href, { cache: 'reload' })
+        .catch(() => {})
+        .finally(() => location.reload());
+    })
+    .catch(() => {});
+})();
+
 (function () {
   const API_URL = (window.SATURNIA_CONFIG && window.SATURNIA_CONFIG.apiUrl) || '';
   const MAX_HISTORY = 15;          // mensagens enviadas ao servidor (sempre começa com 'user')

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&family=Inter:wght@300;400;500;600&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/style.css?v=1" />
+  <link rel="stylesheet" href="css/style.css?v=2" />
 </head>
 <body>
   <header class="top">
@@ -49,21 +49,21 @@
   <footer class="dock">
     <form class="composer" id="composer">
       <label class="sr-only" for="input">Mensagem para a SaturnIA</label>
-      <textarea id="input" rows="1" maxlength="8000" placeholder="Pergunte à SaturnIA…" autocomplete="off"></textarea>
+      <textarea id="input" rows="1" maxlength="6000" placeholder="Pergunte à SaturnIA…" autocomplete="off"></textarea>
       <button type="submit" class="send" id="send" aria-label="Enviar mensagem">
         <svg class="icon-send" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
         <svg class="icon-stop" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="3" fill="currentColor"/></svg>
       </button>
     </form>
     <p class="disclaimer">
-      A SaturnIA pode cometer erros. Funciona com Claude, da Anthropic · Criada por
+      A SaturnIA pode cometer erros. Funciona com Llama, via Cloudflare Workers AI · Criada por
       <a href="https://ryanng0104.github.io/portfolio/" target="_blank" rel="noopener">Ryan Moreira</a>
     </p>
   </footer>
 
-  <script src="js/config.js?v=1"></script>
-  <script src="js/markdown.js?v=1"></script>
-  <script src="js/eye.js?v=1"></script>
-  <script src="js/app.js?v=1"></script>
+  <script src="js/config.js?v=2"></script>
+  <script src="js/markdown.js?v=2"></script>
+  <script src="js/eye.js?v=2"></script>
+  <script src="js/app.js?v=2"></script>
 </body>
 </html>

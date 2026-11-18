@@ -1,25 +1,24 @@
 /* =========================================================
-   SaturnIA · servidor (Cloudflare Worker)
+   SaturnIA · servidor (Cloudflare Worker + Workers AI)
    ---------------------------------------------------------
-   Recebe a conversa do site, chama o Claude com a chave que
-   fica guardada em segredo na Cloudflare e devolve a resposta
-   em tempo real (Server-Sent Events).
+   Recebe a conversa do site, roda o modelo de IA na própria
+   Cloudflare (cota diária gratuita, sem chave de API) e
+   devolve a resposta em tempo real (Server-Sent Events).
    ========================================================= */
 
-import Anthropic from "@anthropic-ai/sdk";
-
-const MODEL = "claude-opus-5-5";
+const DEFAULT_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 
 const SYSTEM_PROMPT = `Você é a SaturnIA, uma assistente de IA de uso geral criada por Ryan Moreira, desenvolvedor full-stack brasileiro. Seu símbolo é um olho feito de partículas, com um anel como o de Saturno.
 
-Responda no idioma em que a pessoa escrever (o padrão é português do Brasil). Seja clara, calorosa e direta: vá ao ponto, explique com exemplos quando ajudar e use Markdown (listas, negrito, blocos de código) só quando deixar a resposta mais fácil de ler.
+Responda no idioma em que a pessoa escrever (o padrão é português do Brasil). Seja clara, calorosa e direta: vá ao ponto, explique com exemplos quando ajudar e use Markdown (listas, negrito, blocos de código) só quando deixar a resposta mais fácil de ler. Se não souber algo, diga que não sabe em vez de inventar.
 
-Se perguntarem qual tecnologia você usa: você funciona com o Claude, um modelo de IA da Anthropic, dentro de uma interface criada pelo Ryan. Se perguntarem sobre o Ryan, conte que ele é desenvolvedor full-stack, trabalha com back-end, APIs REST e está se aprofundando em IA Generativa com AWS, e indique o portfólio dele: https://ryanng0104.github.io/portfolio/`;
+Se perguntarem qual tecnologia você usa: você roda com o modelo Llama, da Meta, na plataforma Workers AI da Cloudflare, dentro de uma interface criada pelo Ryan. Se perguntarem sobre o Ryan, conte que ele é desenvolvedor full-stack, trabalha com back-end e APIs REST e está se aprofundando em IA Generativa, e indique o portfólio dele: https://ryanng0104.github.io/portfolio/`;
 
-// Limites para proteger os créditos da API
-const MAX_MESSAGES = 30;
-const MAX_USER_CHARS = 8000;
-const MAX_ASSISTANT_CHARS = 32000;
+// Limites para proteger a cota gratuita
+const MAX_MESSAGES = 20;
+const MAX_USER_CHARS = 6000;
+const MAX_ASSISTANT_CHARS = 12000;
+const MAX_OUTPUT_TOKENS = 2048;
 const RATE_WINDOW_MS = 60_000;
 const RATE_LIMIT = 15; // mensagens por minuto, por IP
 
@@ -69,47 +68,60 @@ function validateMessages(input) {
   return out[out.length - 1].role === "user" ? out : null;
 }
 
+// Identifica quando a cota gratuita do dia acabou
 function errorCode(err) {
-  if (err instanceof Anthropic.RateLimitError) return "overloaded";
-  if (err instanceof Anthropic.AuthenticationError) return "auth";
-  if (err instanceof Anthropic.BadRequestError) return "invalid_request";
-  if (err instanceof Anthropic.APIError && err.status === 529) return "overloaded";
+  const msg = String((err && err.message) || err).toLowerCase();
+  if (msg.includes("neuron") || msg.includes("allocation") || msg.includes("quota") || msg.includes("4006")) {
+    return "quota";
+  }
+  if (msg.includes("capacity") || msg.includes("overloaded") || msg.includes("3040")) return "overloaded";
   return "default";
+}
+
+// Extrai o texto de um evento do Workers AI (formato clássico ou estilo OpenAI)
+function textFromEvent(data) {
+  if (typeof data.response === "string") return data.response;
+  const delta = data.choices && data.choices[0] && data.choices[0].delta;
+  return (delta && typeof delta.content === "string") ? delta.content : "";
 }
 
 async function streamChat(messages, env, writer) {
   const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
   const send = (obj) => writer.write(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
 
   try {
-    const stream = client.beta.messages.stream({
-      model: MODEL,
-      max_tokens: 16000,
-      // Se o modelo recusar por segurança, a API tenta de novo num modelo alternativo
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
-      // Chat: esforço baixo deixa as respostas rápidas e mais baratas
-      output_config: { effort: "low" },
-      system: SYSTEM_PROMPT,
-      messages,
+    const aiStream = await env.AI.run(env.MODEL || DEFAULT_MODEL, {
+      messages: [{ role: "system", content: SYSTEM_PROMPT }, ...messages],
+      max_tokens: MAX_OUTPUT_TOKENS,
+      stream: true,
     });
 
-    for await (const event of stream) {
-      if (event.type === "content_block_start" && event.content_block.type === "fallback") {
-        // Outro modelo assumiu: descarta o texto parcial do anterior
-        await send({ type: "reset" });
-      } else if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-        await send({ type: "text", text: event.delta.text });
+    const reader = aiStream.getReader();
+    let buffer = "";
+    let finished = false;
+
+    while (!finished) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let idx;
+      while ((idx = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, idx).trim();
+        buffer = buffer.slice(idx + 1);
+        if (!line.startsWith("data:")) continue;
+        const payload = line.slice(5).trim();
+        if (payload === "[DONE]") { finished = true; break; }
+        let data;
+        try { data = JSON.parse(payload); } catch { continue; }
+        const text = textFromEvent(data);
+        if (text) await send({ type: "text", text });
       }
     }
-
-    const final = await stream.finalMessage();
-    if (final.stop_reason === "refusal") await send({ type: "refusal" });
-    else if (final.stop_reason === "max_tokens") await send({ type: "truncated" });
     await send({ type: "done" });
   } catch (err) {
-    console.error("Erro ao chamar o Claude:", err);
+    console.error("Erro no Workers AI:", err);
     await send({ type: "error", code: errorCode(err) }).catch(() => {});
   } finally {
     await writer.close().catch(() => {});
@@ -129,7 +141,7 @@ export default {
       return json({ error: "not_found" }, 404, cors);
     }
     if (!cors) return json({ error: "origin_not_allowed" }, 403, null);
-    if (!env.ANTHROPIC_API_KEY) return json({ error: "auth" }, 500, cors);
+    if (!env.AI) return json({ error: "default" }, 500, cors);
 
     const ip = request.headers.get("CF-Connecting-IP") || "anon";
     if (isRateLimited(ip)) return json({ error: "rate_limited" }, 429, cors);

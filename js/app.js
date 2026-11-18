@@ -4,14 +4,14 @@
 
 (function () {
   const API_URL = (window.SATURNIA_CONFIG && window.SATURNIA_CONFIG.apiUrl) || '';
-  const MAX_HISTORY = 21;          // mensagens enviadas ao servidor (sempre começa com 'user')
-  const MAX_ASSISTANT_CHARS = 30000;
+  const MAX_HISTORY = 15;          // mensagens enviadas ao servidor (sempre começa com 'user')
+  const MAX_ASSISTANT_CHARS = 12000;
 
   const ERRORS = {
     rate_limited: 'Muitas mensagens em pouco tempo. Espere um minutinho e tente de novo.',
     origin_not_allowed: 'Este site não tem permissão para falar com o servidor da SaturnIA.',
     invalid_request: 'Não consegui entender essa mensagem. Tente reformular.',
-    auth: 'O servidor da SaturnIA está sem uma chave de API válida.',
+    quota: 'Por hoje eu já pensei demais: a cota gratuita do dia acabou. Volte amanhã!',
     overloaded: 'A IA está sobrecarregada agora. Tente de novo em instantes.',
     network: 'Não consegui me conectar ao servidor. Verifique sua internet.',
     default: 'Algo deu errado do meu lado. Tente de novo.',
@@ -25,6 +25,7 @@
   const statusEl = document.getElementById('status');
   const eye = new window.SaturnEye(document.getElementById('eye'));
 
+  const MAX_USER_CHARS = 6000;
   const history = []; // { role: 'user' | 'assistant', content: string }
   let controller = null;
 
@@ -127,7 +128,7 @@
 
   async function send(text) {
     if (controller) return;
-    text = text.trim();
+    text = text.trim().slice(0, MAX_USER_CHARS);
     if (!text) return;
 
     setEmpty(false);

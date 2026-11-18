@@ -100,6 +100,7 @@
 
       const thinking = this.state === 'thinking';
       const speaking = this.state === 'speaking';
+      const dark = document.documentElement.dataset.theme === 'dark';
 
       // Velocidades por estado
       this.spin += dt * (thinking ? 1.1 : 0.18);
@@ -177,9 +178,15 @@
           if ((p.z < 0) !== front) continue;
           const q = project(p.x, p.y, p.z);
           const bright = p.i % 6 === 0;
-          ctx.fillStyle = front
-            ? `rgba(124, 58, 237, ${bright ? 0.95 : 0.55})`
-            : `rgba(167, 139, 250, ${bright ? 0.45 : 0.22})`;
+          if (dark) {
+            ctx.fillStyle = front
+              ? `rgba(192, 132, 252, ${bright ? 1 : 0.6})`
+              : `rgba(139, 92, 246, ${bright ? 0.4 : 0.2})`;
+          } else {
+            ctx.fillStyle = front
+              ? `rgba(124, 58, 237, ${bright ? 0.95 : 0.55})`
+              : `rgba(167, 139, 250, ${bright ? 0.45 : 0.22})`;
+          }
           ctx.beginPath();
           ctx.arc(q.sx, q.sy, (bright ? 2.1 : 1.3) * q.s * (size / 420), 0, TAU);
           ctx.fill();
@@ -213,14 +220,19 @@
         let r = (0.9 + depth * 1.7) * q.s * scaleDot;
         let color;
         if (p.dot > pupilCos) {
-          color = `rgba(27, 15, 46, ${0.55 + depth * 0.45})`;
+          // pupila: no tema escuro vira um "buraco" preto emoldurado pela íris
+          color = dark ? 'rgba(4, 2, 8, 1)' : `rgba(27, 15, 46, ${0.55 + depth * 0.45})`;
           r *= 1.25;
         } else if (p.dot > irisCos) {
           const edge = (p.dot - irisCos) / (pupilCos - irisCos); // 0 borda externa, 1 perto da pupila
-          color = `rgba(${Math.round(168 - edge * 44)}, ${Math.round(85 - edge * 27)}, ${Math.round(247 - edge * 10)}, ${0.5 + depth * 0.5})`;
+          color = dark
+            ? `rgba(${Math.round(168 + edge * 48)}, ${Math.round(85 + edge * 95)}, ${Math.round(247 + edge * 7)}, ${0.6 + depth * 0.4})`
+            : `rgba(${Math.round(168 - edge * 44)}, ${Math.round(85 - edge * 27)}, ${Math.round(247 - edge * 10)}, ${0.5 + depth * 0.5})`;
           r *= 1.15;
         } else {
-          color = `rgba(139, 92, 246, ${0.08 + depth * 0.5})`;
+          color = dark
+            ? `rgba(167, 139, 250, ${0.1 + depth * 0.55})`
+            : `rgba(139, 92, 246, ${0.08 + depth * 0.5})`;
         }
         ctx.fillStyle = color;
         ctx.beginPath();

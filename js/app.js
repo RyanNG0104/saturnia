@@ -9,7 +9,7 @@
    uma versão mais nova publicada, ela baixa a página atual e recarrega
    uma única vez. A cada publicação, aumente APP_VERSION e version.json juntos. */
 (function checkForUpdate() {
-  const APP_VERSION = '6';
+  const APP_VERSION = '7';
   fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' })
     .then((r) => (r.ok ? r.json() : null))
     .then((data) => {
@@ -384,8 +384,40 @@
   $('mem-close').addEventListener('click', closeMemories);
   memModal.addEventListener('click', (e) => { if (e.target === memModal) closeMemories(); });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { closeMemories(); setSidebar(false); }
+    if (e.key === 'Escape') { closeMemories(); closeSettings(); setSidebar(false); }
   });
+
+  /* =========================================================
+     Configurações (tema claro / escuro)
+     ========================================================= */
+  const settingsModal = $('settings');
+  const themeButtons = document.querySelectorAll('[data-theme-choice]');
+
+  function currentTheme() {
+    return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+  }
+
+  function applyTheme(theme) {
+    document.documentElement.dataset.theme = theme;
+    try { localStorage.setItem('saturnia-theme', theme); } catch (e) {}
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = theme === 'dark' ? '#09070d' : '#ffffff';
+    themeButtons.forEach((b) => b.setAttribute('aria-checked', String(b.dataset.themeChoice === theme)));
+  }
+
+  function openSettings() {
+    setSidebar(false);
+    applyTheme(currentTheme()); // marca a opção atual
+    settingsModal.hidden = false;
+    $('settings-close').focus();
+  }
+  function closeSettings() { settingsModal.hidden = true; }
+
+  themeButtons.forEach((b) => b.addEventListener('click', () => applyTheme(b.dataset.themeChoice)));
+  $('open-settings').addEventListener('click', openSettings);
+  $('settings-close').addEventListener('click', closeSettings);
+  settingsModal.addEventListener('click', (e) => { if (e.target === settingsModal) closeSettings(); });
+  applyTheme(currentTheme());
   memClear.addEventListener('click', async () => {
     if (!memClear.classList.contains('is-confirm')) {
       memClear.classList.add('is-confirm');

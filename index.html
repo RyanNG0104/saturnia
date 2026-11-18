@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&family=Inter:wght@300;400;500;600&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/style.css?v=3" />
+  <link rel="stylesheet" href="css/style.css?v=4" />
 </head>
 <body>
   <header class="top">
@@ -26,11 +26,12 @@
     </div>
   </header>
 
+  <section class="stage">
+    <canvas id="eye" title="Clique para eu piscar" aria-label="Olho da SaturnIA. Clique para ele piscar." role="img"></canvas>
+    <p class="stage__status" aria-hidden="true"><i></i><span id="status">Observando</span></p>
+  </section>
+
   <main class="app" id="app" data-empty="true">
-    <section class="stage" aria-hidden="true">
-      <canvas id="eye"></canvas>
-      <p class="stage__status"><i></i><span id="status">Observando</span></p>
-    </section>
 
     <section class="intro" id="intro">
       <h1>Olá, eu sou a <em>SaturnIA</em>.</h1>
@@ -61,9 +62,9 @@
     </p>
   </footer>
 
-  <script src="js/config.js?v=3"></script>
-  <script src="js/markdown.js?v=3"></script>
-  <script src="js/eye.js?v=3"></script>
-  <script src="js/app.js?v=3"></script>
+  <script src="js/config.js?v=4"></script>
+  <script src="js/markdown.js?v=4"></script>
+  <script src="js/eye.js?v=4"></script>
+  <script src="js/app.js?v=4"></script>
 </body>
 </html>

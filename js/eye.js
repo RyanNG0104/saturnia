@@ -37,11 +37,15 @@
       this.gazeTarget = { x: 0, y: 0 }; // para onde ele quer olhar
       this.lastPointer = performance.now();
       this.blinkStart = -1;
-      this.nextBlink = performance.now() + 2500;
+
+      // Só pisca quando alguém clica no olho
+      canvas.addEventListener('click', () => this.blink());
 
       this.resize = this.resize.bind(this);
       this.frame = this.frame.bind(this);
       window.addEventListener('resize', this.resize);
+      // Reajusta também durante a animação em que o olho encolhe
+      if ('ResizeObserver' in window) new ResizeObserver(this.resize).observe(canvas);
       window.addEventListener('pointermove', (e) => this.lookAt(e.clientX, e.clientY));
       this.resize();
 
@@ -73,8 +77,11 @@
 
     setState(state) {
       this.state = state;
-      if (state === 'thinking') this.nextBlink = performance.now() + 99999;
-      else this.nextBlink = performance.now() + 1500 + Math.random() * 3000;
+    }
+
+    blink() {
+      if (this.blinkStart < 0) this.blinkStart = performance.now();
+      if (this.reduceMotion) this.draw(performance.now());
     }
 
     pulse() { this.pulseValue = 1; }
@@ -119,17 +126,12 @@
       const pupilTarget = thinking ? 0.17 : speaking ? 0.29 + this.pulseValue * 0.05 : 0.24;
       this.pupil += (pupilTarget - this.pupil) * (1 - Math.pow(0.01, dt));
 
-      // Piscada
-      if (now > this.nextBlink && this.blinkStart < 0) this.blinkStart = now;
+      // Piscada (disparada pelo clique)
       let lid = 1;
       if (this.blinkStart >= 0) {
         const p = (now - this.blinkStart) / 240;
-        if (p >= 1) {
-          this.blinkStart = -1;
-          this.nextBlink = now + 3500 + Math.random() * 4500;
-        } else {
-          lid = 1 - 0.92 * Math.sin(p * Math.PI);
-        }
+        if (p >= 1) this.blinkStart = -1;
+        else lid = 1 - 0.92 * Math.sin(p * Math.PI);
       }
 
       const size = Math.min(w, h);

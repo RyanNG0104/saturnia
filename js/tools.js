@@ -127,6 +127,7 @@
     gallery.querySelector('.gallery__empty')?.remove();
     const pending = makeCard({ prompt }, true);
     gallery.prepend(pending);
+    setBusy('images', true, 'Criando sua imagem');
     try {
       const data = await S().api('/images', { method: 'POST', body: { prompt } });
       pending.replaceWith(makeCard(data.image, false));
@@ -138,6 +139,7 @@
     } finally {
       imgSubmit.disabled = false;
       imgSubmit.textContent = 'Gerar imagem';
+      setBusy('images', false, 'Pronta para criar');
     }
   });
 
@@ -285,6 +287,7 @@
     btn.disabled = true;
     btn.textContent = 'Buscando…';
     expMsg.textContent = 'Procurando lugares…';
+    setBusy('explore', true, 'Procurando lugares');
     try {
       const body = { query };
       if (coords) { body.lat = coords.lat; body.lon = coords.lon; }
@@ -294,16 +297,32 @@
     } finally {
       btn.disabled = false;
       btn.textContent = 'Buscar';
+      setBusy('explore', false, 'Explorando o mapa');
     }
   });
+
+  /* ---------- Planetas de partículas no topo de cada aba ---------- */
+  const planets = {};
+  function ensurePlanet(view) {
+    const id = view === 'images' ? 'planet-images' : 'planet-explore';
+    if (!planets[view] && window.ParticlePlanet) planets[view] = new window.ParticlePlanet($(id), view === 'images' ? 'jupiter' : 'earth');
+    else if (planets[view]) planets[view].resize();
+  }
+  function setBusy(view, busy, label) {
+    if (planets[view]) planets[view].setState(busy ? 'busy' : 'idle');
+    const el = $(view === 'images' ? 'img-status' : 'exp-status');
+    if (el) el.textContent = label;
+  }
 
   /* ---------- Ao abrir cada aba ---------- */
   window.addEventListener('saturnia:view', (e) => {
     if (e.detail === 'images') {
+      ensurePlanet('images');
       loadGallery();
       setTimeout(() => imgPrompt.focus(), 50);
     }
     if (e.detail === 'explore') {
+      ensurePlanet('explore');
       ensureMap();
       setTimeout(() => { if (map) map.invalidateSize(); expQuery.focus(); }, 60);
     }

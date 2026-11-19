@@ -1109,3 +1109,18 @@ body.is-busy .send .icon-stop { display: block; }
   .map { height: 58vh; }
   .pin__name { display: none; }
 }
+
+/* Planetas de partículas no topo das abas (mesmo estilo do olho) */
+.tool-head { flex-direction: column; text-align: center; gap: .2rem; padding-top: .4rem; }
+.planet-stage { position: relative; width: 100%; height: min(30vh, 250px); display: grid; place-items: center; }
+.planet-stage::before {
+  content: '';
+  position: absolute;
+  width: min(45%, 220px); aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(168, 85, 247, .22), transparent 68%);
+  filter: blur(24px);
+}
+.planet-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.planet-stage .stage__status { bottom: 0; }
+@media (max-width: 640px) { .planet-stage { height: 190px; } }

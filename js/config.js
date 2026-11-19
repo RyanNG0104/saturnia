@@ -11,5 +11,5 @@ window.SATURNIA_CONFIG = {
   // Login com o Google: "ID do cliente" criado no Google Cloud (termina em
   // .apps.googleusercontent.com). Precisa ser o mesmo de GOOGLE_CLIENT_ID no
   // worker/wrangler.toml. Vazio = botão do Google escondido.
-  googleClientId: '',
+  googleClientId: '205631623077-le8oa73knatm0a5mk1d4c2ljnct6ncoj.apps.googleusercontent.com',
 };

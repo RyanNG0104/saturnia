@@ -9,7 +9,7 @@
    uma versão mais nova publicada, ela baixa a página atual e recarrega
    uma única vez. A cada publicação, aumente APP_VERSION e version.json juntos. */
 (function checkForUpdate() {
-  const APP_VERSION = '10';
+  const APP_VERSION = '11';
   fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' })
     .then((r) => (r.ok ? r.json() : null))
     .then((data) => {
@@ -45,6 +45,11 @@
     invalid_name: 'Digite como você quer ser chamado.',
     google_invalid: 'Não consegui confirmar seu login com o Google. Tente de novo.',
     google_disabled: 'O login com o Google ainda não está ativado.',
+    image_limit: 'Você chegou ao limite de imagens de hoje. Volte amanhã!',
+    explore_unknown: 'Não entendi que tipo de lugar você procura. Tente algo como "cafés", "farmácia" ou "parque".',
+    explore_place: 'Não encontrei esse endereço ou bairro. Tente escrever de outro jeito, com a cidade.',
+    explore_busy: 'O serviço de mapas está ocupado agora. Tente de novo em instantes.',
+    need_location: 'Me diga onde: use sua localização ou escreva o bairro (ex.: "cafés em Pinheiros").',
     default: 'Algo deu errado do meu lado. Tente de novo.',
   };
 
@@ -454,6 +459,7 @@
 
   async function openConversation(id) {
     if (controller) controller.abort();
+    if (currentView !== 'chat') showView('chat');
     setSidebar(false);
     currentId = id;
     renderConversations();
@@ -486,6 +492,7 @@
 
   function newChat() {
     if (controller) controller.abort();
+    if (currentView !== 'chat') showView('chat');
     currentId = null;
     thread.innerHTML = '';
     topTitle.textContent = '';
@@ -498,6 +505,25 @@
     input.focus();
   }
   $('new-chat').addEventListener('click', newChat);
+
+  /* ---------- Abas: conversa, Imagens (Júpiter) e Explorar (Terra) ---------- */
+  const VIEW_TITLES = { images: 'Imagens', explore: 'Explorar' };
+  let currentView = 'chat';
+
+  function showView(name) {
+    currentView = name;
+    ['chat', 'images', 'explore'].forEach((v) => { $(`view-${v}`).hidden = v !== name; });
+    document.querySelectorAll('.tool').forEach((b) => b.classList.toggle('is-active', b.dataset.view === name));
+    if (name !== 'chat') {
+      topTitle.textContent = VIEW_TITLES[name];
+      currentId = null;
+      renderConversations();
+    }
+    setSidebar(false);
+    window.dispatchEvent(new CustomEvent('saturnia:view', { detail: name }));
+  }
+
+  document.querySelectorAll('.tool').forEach((b) => b.addEventListener('click', () => showView(b.dataset.view)));
 
   /* =========================================================
      Memórias
@@ -864,6 +890,13 @@
       showAuth(e.code === 'network' ? ERRORS.network : '');
     }
   }
+
+  window.SaturnApp = {
+    api,
+    errors: ERRORS,
+    getUser: () => user,
+    getView: () => currentView,
+  };
 
   updateSendButton();
   boot();

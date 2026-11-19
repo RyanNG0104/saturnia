@@ -13,8 +13,15 @@
      GET    /memories           fatos lembrados
      DELETE /memories/:id       esquece um fato
      DELETE /memories           esquece tudo
+     GET    /images             galeria de imagens
+     POST   /images             gera imagem { prompt }
+     GET    /images/:id         arquivo da imagem (JPEG)
+     DELETE /images/:id         apaga imagem
+     POST   /explore            lugares por perto { query, lat?, lon?, place? }
      POST   /chat               conversa { conversationId?, message } (stream SSE)
    ========================================================= */
+
+import { listImages, getImage, deleteImage, createImage, explore } from "./tools.js";
 
 const DEFAULT_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 const DEFAULT_MEMORY_MODEL = "@cf/meta/llama-3.1-8b-instruct-fp8";
@@ -643,6 +650,22 @@ export default {
       if (pathname === "/memories" && method === "DELETE") return await deleteMemory(env, user, null, cors);
       const memMatch = pathname.match(/^\/memories\/(\d{1,12})$/);
       if (memMatch && method === "DELETE") return await deleteMemory(env, user, memMatch[1], cors);
+
+      // Imagens (Júpiter)
+      if (pathname === "/images" && method === "GET") return await listImages(env, user, cors);
+      if (pathname === "/images" && method === "POST") {
+        if (isRateLimited(`img:${user.id}`, 4)) return json({ error: "rate_limited" }, 429, cors);
+        return await createImage(request, env, user, cors);
+      }
+      const imgMatch = pathname.match(/^\/images\/([\w-]{1,64})$/);
+      if (imgMatch && method === "GET") return await getImage(env, user, imgMatch[1], cors);
+      if (imgMatch && method === "DELETE") return await deleteImage(env, user, imgMatch[1], cors);
+
+      // Explorar (Terra)
+      if (pathname === "/explore" && method === "POST") {
+        if (isRateLimited(`exp:${user.id}`, 8)) return json({ error: "rate_limited" }, 429, cors);
+        return await explore(request, env, user, cors);
+      }
 
       if (pathname === "/chat" && method === "POST") {
         if (isRateLimited(`chat:${user.id}`, 15)) return json({ error: "rate_limited" }, 429, cors);

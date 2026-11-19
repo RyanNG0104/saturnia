@@ -30,6 +30,11 @@ cd worker
 npx wrangler d1 execute saturnia-db --remote --command "SELECT name, email, created_at FROM users"
 ```
 
+### Imagens (Júpiter) e Explorar (Terra)
+
+- **Imagens:** descreva uma imagem e ela é gerada com o modelo **FLUX.1 schnell** (Workers AI, grátis). A descrição é traduzida para o inglês por um modelo pequeno, para um resultado melhor. As imagens ficam numa galeria por usuário (no D1), com opção de baixar e apagar. Limite de 25 imagens por dia por pessoa.
+- **Explorar:** pergunte o que há por perto ("cafés para trabalhar em Pinheiros", "farmácia") usando sua localização ou um bairro escrito na pergunta. Os lugares vêm do **OpenStreetMap** (Nominatim), aparecem num mapa (Leaflet + tiles do OpenStreetMap) e em cards com endereço, horário, distância e link para o Google Maps, além de um resumo da SaturnIA feito só com esses dados (sem inventar notas).
+
 ### Proteções do servidor
 
 - Só aceita pedidos vindos dos endereços em `ALLOWED_ORIGINS` (`worker/wrangler.toml`)
@@ -73,7 +78,7 @@ Faça commit e push, e a SaturnIA está no ar.
 
 O botão "Continuar com o Google" é próprio (no estilo da SaturnIA, com o logo oficial do Google) e usa o *token client* do Google Identity Services; o servidor confere o token com o Google antes de entrar.
 
-Bancos criados antes desses recursos precisam das migrações em `worker/migrations/` (`0002_google_login.sql` e `0003_preferences.sql`).
+Bancos criados antes desses recursos precisam das migrações em `worker/migrations/` (`0002_google_login.sql`, `0003_preferences.sql` e `0004_images.sql`).
 
 ### Trocando o modelo
 

@@ -18,7 +18,7 @@ Navegador (GitHub Pages)  ──POST /chat──▶  Cloudflare Worker  ──�
 
 ### Contas, histórico e memória
 
-- **Contas:** cadastro e login com e-mail e senha. A senha nunca é salva, só um hash PBKDF2 com sal. O login gera um token de sessão válido por 30 dias.
+- **Contas:** cadastro e login com e-mail e senha, ou **com o Google**. A senha nunca é salva, só um hash PBKDF2 com sal. O login com o Google é conferido no servidor (assinatura RS256 com as chaves públicas do Google, `aud`, emissor, validade e e-mail verificado). Se o e-mail já tinha conta com senha, as duas formas de login passam a abrir a mesma conta. O login gera um token de sessão válido por 30 dias.
 - **Histórico:** cada conversa e mensagem fica salva no banco **Cloudflare D1** (grátis), e aparece na barra lateral para abrir, continuar ou apagar.
 - **Memória:** depois de cada mensagem, um modelo menor extrai fatos duradouros sobre a pessoa (nome, profissão, gostos…). Eles entram nas próximas conversas e podem ser vistos ou apagados no menu **Memórias**.
 
@@ -61,6 +61,16 @@ window.SATURNIA_CONFIG = {
 ```
 
 Faça commit e push, e a SaturnIA está no ar.
+
+### Ativando o login com o Google (opcional, grátis)
+
+1. Em https://console.cloud.google.com crie um projeto e configure a **tela de consentimento OAuth** (tipo *Externo*).
+2. Em **APIs e serviços → Credenciais → Criar credenciais → ID do cliente OAuth**, escolha **Aplicativo da Web** e adicione a origem JavaScript `https://ryanng0104.github.io`.
+3. Copie o **ID do cliente** (termina em `.apps.googleusercontent.com`) e coloque nos dois lugares:
+   - `GOOGLE_CLIENT_ID` em `worker/wrangler.toml` → `npx wrangler deploy`
+   - `googleClientId` em `js/config.js` → commit e push
+
+Bancos criados antes desse recurso precisam da migração `worker/migrations/0002_google_login.sql`.
 
 ### Trocando o modelo
 

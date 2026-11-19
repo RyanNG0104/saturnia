@@ -9,7 +9,7 @@
    uma versão mais nova publicada, ela baixa a página atual e recarrega
    uma única vez. A cada publicação, aumente APP_VERSION e version.json juntos. */
 (function checkForUpdate() {
-  const APP_VERSION = '7';
+  const APP_VERSION = '8';
   fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' })
     .then((r) => (r.ok ? r.json() : null))
     .then((data) => {
@@ -43,6 +43,8 @@
     weak_password: 'A senha precisa ter pelo menos 8 caracteres.',
     invalid_email: 'Digite um e-mail válido.',
     invalid_name: 'Digite como você quer ser chamado.',
+    google_invalid: 'Não consegui confirmar seu login com o Google. Tente de novo.',
+    google_disabled: 'O login com o Google ainda não está ativado.',
     default: 'Algo deu errado do meu lado. Tente de novo.',
   };
 
@@ -174,7 +176,58 @@
     authEl.hidden = false;
     setAuthMode('login');
     if (message) authError.textContent = message;
+    renderGoogleButton();
     setTimeout(() => authForm.elements.namedItem('email').focus(), 50);
+  }
+
+  /* ---------- Login com o Google ---------- */
+  const GOOGLE_CLIENT_ID = (window.SATURNIA_CONFIG && window.SATURNIA_CONFIG.googleClientId) || '';
+  let googleReady = false;
+
+  // A biblioteca do Google carrega em paralelo: espera até ela existir
+  function whenGoogleLoaded(callback, tries = 0) {
+    if (window.google && window.google.accounts && window.google.accounts.id) callback();
+    else if (tries < 100) setTimeout(() => whenGoogleLoaded(callback, tries + 1), 100);
+  }
+
+  async function onGoogleCredential(response) {
+    authError.textContent = '';
+    try {
+      const data = await api('/auth/google', { method: 'POST', body: { credential: response.credential } });
+      saveToken(data.token);
+      await enterApp(data.user);
+    } catch (err) {
+      authError.textContent = ERRORS[err.code] || ERRORS.default;
+    }
+  }
+
+  function renderGoogleButton() {
+    if (!GOOGLE_CLIENT_ID) return;
+    whenGoogleLoaded(() => {
+      if (!googleReady) {
+        window.google.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          callback: onGoogleCredential,
+          ux_mode: 'popup',
+          context: 'signin',
+        });
+        googleReady = true;
+      }
+      const area = $('google-area');
+      const holder = $('google-btn');
+      area.hidden = false;
+      holder.innerHTML = '';
+      window.google.accounts.id.renderButton(holder, {
+        type: 'standard',
+        theme: document.documentElement.dataset.theme === 'dark' ? 'filled_black' : 'outline',
+        size: 'large',
+        shape: 'pill',
+        text: 'continue_with',
+        logo_alignment: 'left',
+        locale: 'pt-BR',
+        width: Math.min(holder.clientWidth || 336, 400),
+      });
+    });
   }
 
   function sessionExpired() {
@@ -186,6 +239,8 @@
 
   $('logout').addEventListener('click', async () => {
     try { await api('/auth/logout', { method: 'POST' }); } catch (e) {}
+    // Não entra de novo automaticamente com o Google depois de sair
+    if (googleReady) window.google.accounts.id.disableAutoSelect();
     if (controller) controller.abort();
     saveToken(null);
     user = null;

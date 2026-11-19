@@ -8,10 +8,12 @@ CREATE TABLE IF NOT EXISTS users (
   id            TEXT PRIMARY KEY,
   email         TEXT NOT NULL UNIQUE,
   name          TEXT NOT NULL,
-  password_hash TEXT NOT NULL,
+  password_hash TEXT NOT NULL,   -- vazio ('') em contas criadas só com o Google
   password_salt TEXT NOT NULL,
-  created_at    INTEGER NOT NULL
+  created_at    INTEGER NOT NULL,
+  google_sub    TEXT             -- ID da conta Google, quando vinculada
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google ON users(google_sub);
 
 -- Sessões de login (guarda só o hash do token)
 CREATE TABLE IF NOT EXISTS sessions (

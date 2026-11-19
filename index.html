@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&family=Inter:wght@300;400;500;600&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/style.css?v=7" />
+  <link rel="stylesheet" href="css/style.css?v=8" />
   <script>
     // Aplica o tema salvo antes de desenhar a página (evita piscar branco)
     (function () {
@@ -49,6 +49,10 @@
         <p class="auth__error" id="auth-error" role="alert"></p>
         <button class="btn-primary" type="submit" id="auth-submit">Entrar</button>
       </form>
+      <div class="auth__google" id="google-area" hidden>
+        <p class="auth__divider"><span>ou</span></p>
+        <div id="google-btn" class="google-btn"></div>
+      </div>
       <p class="auth__hint">Sua senha é guardada com criptografia e nunca fica visível.</p>
     </div>
   </div>
@@ -187,9 +191,10 @@
     </div>
   </div>
 
-  <script src="js/config.js?v=7"></script>
-  <script src="js/markdown.js?v=7"></script>
-  <script src="js/eye.js?v=7"></script>
-  <script src="js/app.js?v=7"></script>
+  <script src="https://accounts.google.com/gsi/client" async></script>
+  <script src="js/config.js?v=8"></script>
+  <script src="js/markdown.js?v=8"></script>
+  <script src="js/eye.js?v=8"></script>
+  <script src="js/app.js?v=8"></script>
 </body>
 </html>

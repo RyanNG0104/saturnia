@@ -4,6 +4,7 @@
    Rotas:
      POST   /auth/register      cria conta  { name, email, password }
      POST   /auth/login         entra       { email, password }
+     POST   /auth/google        entra com o Google { credential }
      POST   /auth/logout        sai
      GET    /me                 usuário atual
      GET    /conversations      lista de conversas
@@ -174,14 +175,110 @@ async function login(request, env, cors) {
     "SELECT id, name, email, password_hash, password_salt FROM users WHERE email = ?",
   ).bind(email).first();
 
-  // Calcula o hash mesmo se o e-mail não existir, para não revelar quais e-mails têm conta
-  const check = await hashPassword(password, user ? user.password_salt : toB64url(new Uint8Array(16)));
-  if (!user || !safeEqual(check.hash, user.password_hash)) {
+  // Calcula o hash mesmo se o e-mail não existir, para não revelar quais e-mails têm conta.
+  // Contas criadas só com o Google não têm senha (hash vazio) e não entram por aqui.
+  const hasPassword = Boolean(user && user.password_hash && user.password_salt);
+  const check = await hashPassword(password, hasPassword ? user.password_salt : toB64url(new Uint8Array(16)));
+  if (!hasPassword || !safeEqual(check.hash, user.password_hash)) {
     return json({ error: "invalid_credentials" }, 401, cors);
   }
 
   // Limpa sessões vencidas de vez em quando
   await env.DB.prepare("DELETE FROM sessions WHERE expires_at < ?").bind(Date.now()).run();
+
+  const token = await createSession(env, user.id);
+  return json({ token, user: publicUser(user) }, 200, cors);
+}
+
+/* ---------------------------------------------------------
+   Login com o Google
+   O site recebe do Google um "ID token" (JWT assinado). Aqui a
+   assinatura é conferida com as chaves públicas do Google, e o
+   token precisa ter sido emitido para o nosso Client ID.
+   --------------------------------------------------------- */
+const GOOGLE_CERTS_URL = "https://www.googleapis.com/oauth2/v3/certs";
+const GOOGLE_ISSUERS = new Set(["accounts.google.com", "https://accounts.google.com"]);
+let googleKeys = null;
+let googleKeysExpireAt = 0;
+
+async function getGoogleKeys() {
+  if (googleKeys && Date.now() < googleKeysExpireAt) return googleKeys;
+  const res = await fetch(GOOGLE_CERTS_URL);
+  if (!res.ok) throw new Error(`Falha ao buscar as chaves do Google: ${res.status}`);
+  const data = await res.json();
+  const maxAge = /max-age=(\d+)/.exec(res.headers.get("Cache-Control") || "");
+  googleKeys = data.keys || [];
+  googleKeysExpireAt = Date.now() + (maxAge ? Number(maxAge[1]) * 1000 : 3_600_000);
+  return googleKeys;
+}
+
+function decodeJwtPart(part) {
+  return JSON.parse(new TextDecoder().decode(fromB64url(part)));
+}
+
+async function verifyGoogleToken(token, clientId) {
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  let header, payload;
+  try {
+    header = decodeJwtPart(parts[0]);
+    payload = decodeJwtPart(parts[1]);
+  } catch {
+    return null;
+  }
+  if (header.alg !== "RS256" || !header.kid) return null;
+
+  const jwk = (await getGoogleKeys()).find((k) => k.kid === header.kid);
+  if (!jwk) return null;
+  const key = await crypto.subtle.importKey(
+    "jwk",
+    { kty: jwk.kty, n: jwk.n, e: jwk.e, alg: "RS256", ext: true },
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["verify"],
+  );
+  const valid = await crypto.subtle.verify(
+    "RSASSA-PKCS1-v1_5",
+    key,
+    fromB64url(parts[2]),
+    encoder.encode(`${parts[0]}.${parts[1]}`),
+  );
+  if (!valid) return null;
+
+  const now = Math.floor(Date.now() / 1000);
+  if (payload.aud !== clientId) return null;
+  if (!GOOGLE_ISSUERS.has(payload.iss)) return null;
+  if (typeof payload.exp !== "number" || payload.exp < now - 60) return null;
+  if (!payload.sub || !payload.email) return null;
+  if (payload.email_verified !== true && payload.email_verified !== "true") return null;
+  return payload;
+}
+
+async function googleLogin(request, env, cors) {
+  if (!env.GOOGLE_CLIENT_ID) return json({ error: "google_disabled" }, 400, cors);
+  const body = await readJson(request);
+  const credential = String((body && body.credential) || "");
+  if (!credential || credential.length > 4096) return json({ error: "invalid_request" }, 400, cors);
+
+  const info = await verifyGoogleToken(credential, env.GOOGLE_CLIENT_ID);
+  if (!info) return json({ error: "google_invalid" }, 401, cors);
+
+  const email = String(info.email).toLowerCase();
+  let user = await env.DB.prepare("SELECT id, name, email FROM users WHERE google_sub = ?").bind(info.sub).first();
+
+  if (!user) {
+    // Já existe conta com esse e-mail (criada com senha)? Vincula ao Google.
+    user = await env.DB.prepare("SELECT id, name, email FROM users WHERE email = ?").bind(email).first();
+    if (user) {
+      await env.DB.prepare("UPDATE users SET google_sub = ? WHERE id = ?").bind(info.sub, user.id).run();
+    } else {
+      const name = String(info.given_name || info.name || email.split("@")[0]).trim().slice(0, 60) || "Visitante";
+      user = { id: crypto.randomUUID(), name, email };
+      await env.DB.prepare(
+        "INSERT INTO users (id, email, name, password_hash, password_salt, created_at, google_sub) VALUES (?, ?, ?, '', '', ?, ?)",
+      ).bind(user.id, email, name, Date.now(), info.sub).run();
+    }
+  }
 
   const token = await createSession(env, user.id);
   return json({ token, user: publicUser(user) }, 200, cors);
@@ -456,6 +553,10 @@ export default {
       if (pathname === "/auth/login" && method === "POST") {
         if (isRateLimited(`auth:${ip}`, 10)) return json({ error: "rate_limited" }, 429, cors);
         return await login(request, env, cors);
+      }
+      if (pathname === "/auth/google" && method === "POST") {
+        if (isRateLimited(`auth:${ip}`, 10)) return json({ error: "rate_limited" }, 429, cors);
+        return await googleLogin(request, env, cors);
       }
 
       // Daqui para baixo precisa estar logado

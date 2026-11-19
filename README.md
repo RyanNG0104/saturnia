@@ -19,6 +19,7 @@ Navegador (GitHub Pages)  ──POST /chat──▶  Cloudflare Worker  ──�
 ### Contas, histórico e memória
 
 - **Contas:** cadastro e login com e-mail e senha, ou **com o Google**. A senha nunca é salva, só um hash PBKDF2 com sal. O login com o Google é conferido no servidor (assinatura RS256 com as chaves públicas do Google, `aud`, emissor, validade e e-mail verificado). Se o e-mail já tinha conta com senha, as duas formas de login passam a abrir a mesma conta. O login gera um token de sessão válido por 30 dias.
+- **Boas-vindas e preferências:** no primeiro acesso, a SaturnIA pergunta como a pessoa quer ser chamada e qual cor ela prefere para os botões (roxo, azul, verde, rosa, laranja ou ciano). Tudo fica salvo na conta e pode ser trocado em **Configurações**, junto com o tema claro/escuro. A marca e o olho continuam roxos.
 - **Histórico:** cada conversa e mensagem fica salva no banco **Cloudflare D1** (grátis), e aparece na barra lateral para abrir, continuar ou apagar.
 - **Memória:** depois de cada mensagem, um modelo menor extrai fatos duradouros sobre a pessoa (nome, profissão, gostos…). Eles entram nas próximas conversas e podem ser vistos ou apagados no menu **Memórias**.
 
@@ -70,7 +71,9 @@ Faça commit e push, e a SaturnIA está no ar.
    - `GOOGLE_CLIENT_ID` em `worker/wrangler.toml` → `npx wrangler deploy`
    - `googleClientId` em `js/config.js` → commit e push
 
-Bancos criados antes desse recurso precisam da migração `worker/migrations/0002_google_login.sql`.
+O botão "Continuar com o Google" é próprio (no estilo da SaturnIA, com o logo oficial do Google) e usa o *token client* do Google Identity Services; o servidor confere o token com o Google antes de entrar.
+
+Bancos criados antes desses recursos precisam das migrações em `worker/migrations/` (`0002_google_login.sql` e `0003_preferences.sql`).
 
 ### Trocando o modelo
 

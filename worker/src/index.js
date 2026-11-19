@@ -119,8 +119,40 @@ async function readJson(request) {
    --------------------------------------------------------- */
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+const ACCENTS = new Set(["roxo", "azul", "verde", "rosa", "laranja", "ciano"]);
+
 function publicUser(u) {
-  return { id: u.id, name: u.name, email: u.email };
+  return {
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    accent: ACCENTS.has(u.accent) ? u.accent : "roxo",
+    onboarded: Boolean(u.onboarded),
+  };
+}
+
+// Salva as preferências do usuário: nome, cor dos botões e "primeiro acesso concluído"
+async function updateMe(request, env, user, cors) {
+  const body = (await readJson(request)) || {};
+  const sets = [];
+  const values = [];
+  if (body.name !== undefined) {
+    const name = String(body.name).trim().replace(/\s+/g, " ");
+    if (name.length < 1 || name.length > 60) return json({ error: "invalid_name" }, 400, cors);
+    sets.push("name = ?");
+    values.push(name);
+  }
+  if (body.accent !== undefined) {
+    if (!ACCENTS.has(body.accent)) return json({ error: "invalid_request" }, 400, cors);
+    sets.push("accent = ?");
+    values.push(body.accent);
+  }
+  if (body.onboarded === true) sets.push("onboarded = 1");
+  if (!sets.length) return json({ error: "invalid_request" }, 400, cors);
+
+  await env.DB.prepare(`UPDATE users SET ${sets.join(", ")} WHERE id = ?`).bind(...values, user.id).run();
+  const updated = await env.DB.prepare("SELECT id, name, email, accent, onboarded FROM users WHERE id = ?").bind(user.id).first();
+  return json({ user: publicUser(updated) }, 200, cors);
 }
 
 async function createSession(env, userId) {
@@ -137,7 +169,7 @@ async function currentUser(request, env) {
   const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
   if (!token) return null;
   const row = await env.DB.prepare(
-    `SELECT u.id, u.name, u.email FROM sessions s JOIN users u ON u.id = s.user_id
+    `SELECT u.id, u.name, u.email, u.accent, u.onboarded FROM sessions s JOIN users u ON u.id = s.user_id
      WHERE s.token_hash = ? AND s.expires_at > ?`,
   ).bind(await sha256(token), Date.now()).first();
   return row ? { ...row, tokenHash: await sha256(token) } : null;
@@ -157,7 +189,7 @@ async function register(request, env, cors) {
   if (exists) return json({ error: "email_taken" }, 409, cors);
 
   const { hash, salt } = await hashPassword(password);
-  const user = { id: crypto.randomUUID(), name, email };
+  const user = { id: crypto.randomUUID(), name, email, accent: "roxo", onboarded: 0 };
   await env.DB.prepare(
     "INSERT INTO users (id, email, name, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?, ?)",
   ).bind(user.id, email, name, hash, salt, Date.now()).run();
@@ -172,7 +204,7 @@ async function login(request, env, cors) {
   const password = String((body && body.password) || "");
 
   const user = await env.DB.prepare(
-    "SELECT id, name, email, password_hash, password_salt FROM users WHERE email = ?",
+    "SELECT id, name, email, accent, onboarded, password_hash, password_salt FROM users WHERE email = ?",
   ).bind(email).first();
 
   // Calcula o hash mesmo se o e-mail não existir, para não revelar quais e-mails têm conta.
@@ -254,26 +286,58 @@ async function verifyGoogleToken(token, clientId) {
   return payload;
 }
 
+/* Botão personalizado: o site recebe um "access token" do Google.
+   Aqui o servidor pergunta ao próprio Google se o token é válido e
+   se foi emitido para o NOSSO Client ID (senha de outro app não serve). */
+async function verifyGoogleAccessToken(accessToken, clientId) {
+  const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(accessToken)}`);
+  if (!res.ok) return null;
+  const info = await res.json();
+  if (info.aud !== clientId && info.azp !== clientId) return null;
+  if (!(Number(info.expires_in) > 0)) return null;
+  if (!info.sub || !info.email) return null;
+  if (info.email_verified !== true && info.email_verified !== "true") return null;
+
+  // Nome da pessoa (opcional): vem do endpoint de perfil
+  let profile = {};
+  try {
+    const p = await fetch("https://openidconnect.googleapis.com/v1/userinfo", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (p.ok) profile = await p.json();
+  } catch {}
+  if (profile.sub && profile.sub !== info.sub) return null;
+  return { sub: info.sub, email: info.email, given_name: profile.given_name, name: profile.name };
+}
+
 async function googleLogin(request, env, cors) {
   if (!env.GOOGLE_CLIENT_ID) return json({ error: "google_disabled" }, 400, cors);
-  const body = await readJson(request);
-  const credential = String((body && body.credential) || "");
-  if (!credential || credential.length > 4096) return json({ error: "invalid_request" }, 400, cors);
+  const body = (await readJson(request)) || {};
+  const credential = String(body.credential || "");
+  const accessToken = String(body.accessToken || "");
 
-  const info = await verifyGoogleToken(credential, env.GOOGLE_CLIENT_ID);
+  let info = null;
+  if (credential && credential.length <= 4096) {
+    info = await verifyGoogleToken(credential, env.GOOGLE_CLIENT_ID);
+  } else if (accessToken && accessToken.length <= 4096) {
+    info = await verifyGoogleAccessToken(accessToken, env.GOOGLE_CLIENT_ID);
+  } else {
+    return json({ error: "invalid_request" }, 400, cors);
+  }
   if (!info) return json({ error: "google_invalid" }, 401, cors);
 
   const email = String(info.email).toLowerCase();
-  let user = await env.DB.prepare("SELECT id, name, email FROM users WHERE google_sub = ?").bind(info.sub).first();
+  const cols = "id, name, email, accent, onboarded";
+  let user = await env.DB.prepare(`SELECT ${cols} FROM users WHERE google_sub = ?`).bind(info.sub).first();
 
   if (!user) {
     // Já existe conta com esse e-mail (criada com senha)? Vincula ao Google.
-    user = await env.DB.prepare("SELECT id, name, email FROM users WHERE email = ?").bind(email).first();
+    user = await env.DB.prepare(`SELECT ${cols} FROM users WHERE email = ?`).bind(email).first();
     if (user) {
       await env.DB.prepare("UPDATE users SET google_sub = ? WHERE id = ?").bind(info.sub, user.id).run();
     } else {
       const name = String(info.given_name || info.name || email.split("@")[0]).trim().slice(0, 60) || "Visitante";
-      user = { id: crypto.randomUUID(), name, email };
+      user = { id: crypto.randomUUID(), name, email, accent: "roxo", onboarded: 0 };
       await env.DB.prepare(
         "INSERT INTO users (id, email, name, password_hash, password_salt, created_at, google_sub) VALUES (?, ?, ?, '', '', ?, ?)",
       ).bind(user.id, email, name, Date.now(), info.sub).run();
@@ -568,6 +632,7 @@ export default {
         return json({ ok: true }, 200, cors);
       }
       if (pathname === "/me" && method === "GET") return json({ user: publicUser(user) }, 200, cors);
+      if (pathname === "/me" && method === "POST") return await updateMe(request, env, user, cors);
 
       if (pathname === "/conversations" && method === "GET") return await listConversations(env, user, cors);
       const convMatch = pathname.match(/^\/conversations\/([\w-]{1,64})$/);

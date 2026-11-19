@@ -9,7 +9,7 @@
    uma versão mais nova publicada, ela baixa a página atual e recarrega
    uma única vez. A cada publicação, aumente APP_VERSION e version.json juntos. */
 (function checkForUpdate() {
-  const APP_VERSION = '9';
+  const APP_VERSION = '10';
   fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' })
     .then((r) => (r.ok ? r.json() : null))
     .then((data) => {
@@ -176,59 +176,71 @@
     authEl.hidden = false;
     setAuthMode('login');
     if (message) authError.textContent = message;
-    renderGoogleButton();
+    setupGoogle();
     setTimeout(() => authForm.elements.namedItem('email').focus(), 50);
   }
 
-  /* ---------- Login com o Google ---------- */
+  /* ---------- Login com o Google (botão no estilo da SaturnIA) ----------
+     O botão é nosso; ao clicar, o Google abre uma janela para a pessoa
+     escolher a conta e devolve um "access token", que o servidor confere
+     com o próprio Google antes de entrar. */
   const GOOGLE_CLIENT_ID = (window.SATURNIA_CONFIG && window.SATURNIA_CONFIG.googleClientId) || '';
-  let googleReady = false;
+  const googleBtn = $('google-btn');
+  let tokenClient = null;
 
   // A biblioteca do Google carrega em paralelo: espera até ela existir
   function whenGoogleLoaded(callback, tries = 0) {
-    if (window.google && window.google.accounts && window.google.accounts.id) callback();
+    if (window.google && window.google.accounts && window.google.accounts.oauth2) callback();
     else if (tries < 100) setTimeout(() => whenGoogleLoaded(callback, tries + 1), 100);
   }
 
-  async function onGoogleCredential(response) {
-    authError.textContent = '';
+  function setGoogleBusy(busy) {
+    googleBtn.disabled = busy;
+    $('google-btn-label').textContent = busy ? 'Conectando ao Google…' : 'Continuar com o Google';
+  }
+
+  async function onGoogleToken(resp) {
+    if (!resp || !resp.access_token) {
+      setGoogleBusy(false);
+      if (resp && resp.error && resp.error !== 'access_denied') authError.textContent = ERRORS.google_invalid;
+      return;
+    }
     try {
-      const data = await api('/auth/google', { method: 'POST', body: { credential: response.credential } });
+      const data = await api('/auth/google', { method: 'POST', body: { accessToken: resp.access_token } });
       saveToken(data.token);
       await enterApp(data.user);
     } catch (err) {
       authError.textContent = ERRORS[err.code] || ERRORS.default;
+    } finally {
+      setGoogleBusy(false);
     }
   }
 
-  function renderGoogleButton() {
+  function setupGoogle() {
     if (!GOOGLE_CLIENT_ID) return;
     whenGoogleLoaded(() => {
-      if (!googleReady) {
-        window.google.accounts.id.initialize({
+      if (!tokenClient) {
+        tokenClient = window.google.accounts.oauth2.initTokenClient({
           client_id: GOOGLE_CLIENT_ID,
-          callback: onGoogleCredential,
-          ux_mode: 'popup',
-          context: 'signin',
+          scope: 'openid email profile',
+          prompt: 'select_account',
+          callback: onGoogleToken,
+          error_callback: (err) => {
+            setGoogleBusy(false);
+            if (err && err.type !== 'popup_closed') authError.textContent = ERRORS.google_invalid;
+          },
         });
-        googleReady = true;
       }
-      const area = $('google-area');
-      const holder = $('google-btn');
-      area.hidden = false;
-      holder.innerHTML = '';
-      window.google.accounts.id.renderButton(holder, {
-        type: 'standard',
-        theme: document.documentElement.dataset.theme === 'dark' ? 'filled_black' : 'outline',
-        size: 'large',
-        shape: 'pill',
-        text: 'continue_with',
-        logo_alignment: 'left',
-        locale: 'pt-BR',
-        width: Math.min(holder.clientWidth || 336, 400),
-      });
+      $('google-area').hidden = false;
     });
   }
+
+  googleBtn.addEventListener('click', () => {
+    if (!tokenClient) return;
+    authError.textContent = '';
+    setGoogleBusy(true);
+    tokenClient.requestAccessToken();
+  });
 
   function sessionExpired() {
     if (controller) controller.abort();
@@ -239,8 +251,6 @@
 
   $('logout').addEventListener('click', async () => {
     try { await api('/auth/logout', { method: 'POST' }); } catch (e) {}
-    // Não entra de novo automaticamente com o Google depois de sair
-    if (googleReady) window.google.accounts.id.disableAutoSelect();
     if (controller) controller.abort();
     saveToken(null);
     user = null;
@@ -250,18 +260,129 @@
     showAuth();
   });
 
+  function updateUserUI() {
+    if (!user) return;
+    $('user-name').textContent = user.name;
+    $('user-email').textContent = user.email;
+    $('user-avatar').textContent = (user.name || '?').trim().charAt(0).toUpperCase();
+    $('intro-name').textContent = `, ${user.name.split(' ')[0]}`;
+  }
+
+  // Salva nome, cor e/ou "primeiro acesso concluído" na conta
+  async function saveMe(fields) {
+    const data = await api('/me', { method: 'POST', body: fields });
+    user = data.user;
+    updateUserUI();
+    return user;
+  }
+
   async function enterApp(u) {
     user = u;
+    applyAccent(u.accent);
     authEl.hidden = true;
     shell.hidden = false;
     ensureEye();
-    $('user-name').textContent = u.name;
-    $('user-email').textContent = u.email;
-    $('user-avatar').textContent = (u.name || '?').trim().charAt(0).toUpperCase();
-    $('intro-name').textContent = `, ${u.name.split(' ')[0]}`;
+    updateUserUI();
     newChat();
+    if (!u.onboarded) openOnboarding();
     await Promise.all([loadConversations(), refreshMemoryCount()]);
   }
+
+  /* =========================================================
+     Cor dos botões (escolhida por cada pessoa)
+     ========================================================= */
+  const ACCENTS = [
+    { id: 'roxo', name: 'Roxo', color: '#7c3aed' },
+    { id: 'azul', name: 'Azul', color: '#2563eb' },
+    { id: 'verde', name: 'Verde', color: '#059669' },
+    { id: 'rosa', name: 'Rosa', color: '#db2777' },
+    { id: 'laranja', name: 'Laranja', color: '#ea580c' },
+    { id: 'ciano', name: 'Ciano', color: '#0891b2' },
+  ];
+
+  function currentAccent() {
+    return document.documentElement.dataset.accent || 'roxo';
+  }
+
+  function applyAccent(id) {
+    const valid = ACCENTS.some((a) => a.id === id) ? id : 'roxo';
+    if (valid === 'roxo') document.documentElement.removeAttribute('data-accent');
+    else document.documentElement.dataset.accent = valid;
+    try { localStorage.setItem('saturnia-accent', valid); } catch (e) {}
+    markSwatches();
+  }
+
+  function markSwatches() {
+    const active = currentAccent();
+    document.querySelectorAll('.swatch').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.accent === active)));
+  }
+
+  function renderSwatches(container, onPick) {
+    container.innerHTML = '';
+    for (const a of ACCENTS) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'swatch';
+      b.dataset.accent = a.id;
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-label', a.name);
+      b.title = a.name;
+      b.style.setProperty('--swatch', a.color);
+      b.innerHTML = `<span class="swatch__dot"></span><span class="swatch__name">${a.name}</span>`;
+      b.addEventListener('click', () => onPick(a.id));
+      container.appendChild(b);
+    }
+    markSwatches();
+  }
+
+  /* =========================================================
+     Boas-vindas: nome e cor no primeiro acesso
+     ========================================================= */
+  const onboard = $('onboard');
+  let onboardName = '';
+
+  function showOnboardStep(n) {
+    $('onboard-step-1').hidden = n !== 1;
+    $('onboard-step-2').hidden = n !== 2;
+    onboard.querySelectorAll('.onboard__steps i').forEach((dot, i) => dot.classList.toggle('is-on', i < n));
+    if (n === 1) setTimeout(() => { const i = $('onboard-name'); i.focus(); i.select(); }, 50);
+  }
+
+  function openOnboarding() {
+    $('onboard-name').value = user.name || '';
+    $('onboard-error').textContent = '';
+    renderSwatches($('onboard-swatches'), (id) => applyAccent(id));
+    onboard.hidden = false;
+    showOnboardStep(1);
+  }
+
+  $('onboard-name-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const name = $('onboard-name').value.trim().replace(/\s+/g, ' ');
+    if (!name) { $('onboard-error').textContent = 'Me diga como você quer ser chamado.'; return; }
+    $('onboard-error').textContent = '';
+    onboardName = name;
+    showOnboardStep(2);
+  });
+  $('onboard-back').addEventListener('click', () => showOnboardStep(1));
+  $('onboard-finish').addEventListener('click', async () => {
+    const btn = $('onboard-finish');
+    btn.disabled = true;
+    btn.textContent = 'Salvando…';
+    try {
+      await saveMe({ name: onboardName, accent: currentAccent(), onboarded: true });
+      onboard.hidden = true;
+      input.focus();
+    } catch (err) {
+      if (err.code !== 'unauthorized') {
+        showOnboardStep(1);
+        $('onboard-error').textContent = ERRORS[err.code] || ERRORS.default;
+      }
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Começar a conversar';
+    }
+  });
 
   /* =========================================================
      Barra lateral e conversas
@@ -463,9 +584,41 @@
   function openSettings() {
     setSidebar(false);
     applyTheme(currentTheme()); // marca a opção atual
+    $('settings-name').value = user ? user.name : '';
+    $('settings-name-msg').textContent = '';
+    markSwatches();
     settingsModal.hidden = false;
     $('settings-close').focus();
   }
+
+  // Cor dos botões: aplica na hora e salva na conta
+  renderSwatches($('settings-swatches'), async (id) => {
+    const previous = currentAccent();
+    applyAccent(id);
+    try {
+      await saveMe({ accent: id });
+    } catch (e) {
+      applyAccent(previous);
+    }
+  });
+
+  // Trocar o nome
+  $('name-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const msg = $('settings-name-msg');
+    const name = $('settings-name').value.trim().replace(/\s+/g, ' ');
+    if (!name) { msg.textContent = 'Digite um nome.'; return; }
+    const btn = $('settings-name-save');
+    btn.disabled = true;
+    try {
+      await saveMe({ name });
+      msg.textContent = `Pronto! Vou te chamar de ${name}.`;
+    } catch (err) {
+      msg.textContent = ERRORS[err.code] || ERRORS.default;
+    } finally {
+      btn.disabled = false;
+    }
+  });
   function closeSettings() { settingsModal.hidden = true; }
 
   themeButtons.forEach((b) => b.addEventListener('click', () => applyTheme(b.dataset.themeChoice)));

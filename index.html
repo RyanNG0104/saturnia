@@ -11,13 +11,24 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&family=Inter:wght@300;400;500;600&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
-  <link rel="stylesheet" href="css/style.css?v=14" />
+  <link rel="stylesheet" href="css/style.css?v=15" />
   <script>
     // Aplica o tema salvo antes de desenhar a página (evita piscar branco)
     (function () {
-      var t = 'light';
-      try { t = localStorage.getItem('saturnia-theme') === 'dark' ? 'dark' : 'light'; } catch (e) {}
-      document.documentElement.setAttribute('data-theme', t);
+      var root = document.documentElement, t = 'light';
+      try {
+        t = localStorage.getItem('saturnia-theme') || 'light';
+        if (t === 'system') t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        if (t !== 'dark') t = 'light';
+      } catch (e) {}
+      root.setAttribute('data-theme', t);
+      // Cor do layout e tamanho do texto
+      try {
+        var l = localStorage.getItem('saturnia-layout');
+        if (l && l !== 'lavanda') root.setAttribute('data-layout', l);
+        var s = localStorage.getItem('saturnia-text');
+        if (s === 'p' || s === 'g') root.setAttribute('data-text', s);
+      } catch (e) {}
       // Cor dos botões escolhida pelo usuário (a definitiva vem da conta, ao entrar)
       try {
         var a = localStorage.getItem('saturnia-accent');
@@ -266,7 +277,7 @@
 
   <!-- ===================== CONFIGURAÇÕES ===================== -->
   <div class="modal" id="settings" hidden>
-    <div class="modal__card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <div class="modal__card modal__card--settings" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <header class="modal__head">
         <h2 id="settings-title">Configurações</h2>
         <button class="icon-btn" id="settings-close" type="button" aria-label="Fechar">
@@ -274,36 +285,219 @@
         </button>
       </header>
 
-      <section class="settings__section">
-        <h3 class="settings__label">Como devo te chamar</h3>
-        <form class="name-form" id="name-form">
-          <label class="sr-only" for="settings-name">Seu nome</label>
-          <input id="settings-name" class="name-form__input" maxlength="60" autocomplete="nickname" placeholder="Seu nome" />
-          <button type="submit" class="name-form__save" id="settings-name-save">Salvar</button>
-        </form>
-        <p class="settings__msg" id="settings-name-msg" role="status"></p>
-      </section>
-
-      <section class="settings__section">
-        <h3 class="settings__label">Cor dos botões</h3>
-        <div class="swatches" id="settings-swatches" role="radiogroup" aria-label="Cor dos botões"></div>
-      </section>
-
-      <section class="settings__section">
-        <h3 class="settings__label">Aparência</h3>
-        <div class="theme-options" role="radiogroup" aria-label="Cor do site">
-          <button type="button" class="theme-option" role="radio" data-theme-choice="light">
-            <span class="theme-preview theme-preview--light" aria-hidden="true"><i></i><b></b><b></b></span>
-            <span class="theme-option__name">Claro</span>
-            <span class="theme-option__desc">Branco e roxo</span>
+      <div class="settings">
+        <nav class="settings__nav" role="tablist" aria-label="Seções das configurações">
+          <button type="button" role="tab" class="settings__tab is-active" data-tab="perfil" aria-selected="true">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
+            Perfil
           </button>
-          <button type="button" class="theme-option" role="radio" data-theme-choice="dark">
-            <span class="theme-preview theme-preview--dark" aria-hidden="true"><i></i><b></b><b></b></span>
-            <span class="theme-option__name">Escuro</span>
-            <span class="theme-option__desc">Preto e roxo</span>
+          <button type="button" role="tab" class="settings__tab" data-tab="aparencia" aria-selected="false">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.7-.8 1.7-1.7 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-.9.8-1.7 1.7-1.7H16a5 5 0 0 0 5-5c0-4-4-7.2-9-7.2z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10.5" cy="7.5" r="1"/><circle cx="15" cy="7.5" r="1"/></svg>
+            Aparência
           </button>
+          <button type="button" role="tab" class="settings__tab" data-tab="chat" aria-selected="false">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.8 7L4 20l1.2-4.4A8 8 0 1 1 21 12z"/></svg>
+            Chat
+          </button>
+          <button type="button" role="tab" class="settings__tab" data-tab="dados" aria-selected="false">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/></svg>
+            Conta e dados
+          </button>
+        </nav>
+
+        <div class="settings__panels">
+          <!-- Perfil -->
+          <div class="settings__panel" data-panel="perfil" role="tabpanel">
+            <div class="profile-card">
+              <span class="profile-card__avatar" id="profile-avatar" aria-hidden="true"></span>
+              <div class="profile-card__info">
+                <strong id="profile-name"></strong>
+                <span id="profile-email"></span>
+                <span class="profile-card__badges" id="profile-badges"></span>
+              </div>
+            </div>
+            <dl class="stats" id="profile-stats"></dl>
+
+            <section class="settings__section">
+              <h3 class="settings__label">Editar perfil</h3>
+              <form class="set-form" id="name-form">
+                <label class="set-field">
+                  <span>Como devo te chamar</span>
+                  <input id="settings-name" maxlength="60" autocomplete="nickname" placeholder="Seu nome ou apelido" />
+                </label>
+                <label class="set-field">
+                  <span>E-mail</span>
+                  <input id="settings-email" type="email" disabled />
+                  <small>O e-mail é o seu login e não pode ser trocado.</small>
+                </label>
+                <div class="set-form__bar">
+                  <p class="settings__msg" id="settings-name-msg" role="status"></p>
+                  <button type="submit" class="name-form__save" id="settings-name-save">Salvar</button>
+                </div>
+              </form>
+            </section>
+
+            <section class="settings__section">
+              <h3 class="settings__label" id="pw-title">Senha</h3>
+              <p class="settings__hint" id="pw-hint"></p>
+              <form class="set-form" id="pw-form" novalidate>
+                <input type="email" autocomplete="username" id="pw-username" hidden />
+                <label class="set-field" id="pw-current-field">
+                  <span>Senha atual</span>
+                  <input id="pw-current" type="password" autocomplete="current-password" />
+                </label>
+                <label class="set-field">
+                  <span>Nova senha</span>
+                  <input id="pw-new" type="password" autocomplete="new-password" minlength="8" placeholder="Mínimo de 8 caracteres" />
+                </label>
+                <div class="pw-meter" aria-hidden="true"><i id="pw-meter"></i></div>
+                <label class="set-field">
+                  <span>Repita a nova senha</span>
+                  <input id="pw-confirm" type="password" autocomplete="new-password" />
+                </label>
+                <label class="check"><input type="checkbox" id="pw-show" /> Mostrar senhas</label>
+                <div class="set-form__bar">
+                  <p class="settings__msg" id="pw-msg" role="status"></p>
+                  <button type="submit" class="name-form__save" id="pw-save">Trocar senha</button>
+                </div>
+              </form>
+            </section>
+          </div>
+
+          <!-- Aparência -->
+          <div class="settings__panel" data-panel="aparencia" role="tabpanel" hidden>
+            <section class="settings__section">
+              <h3 class="settings__label">Tema</h3>
+              <div class="theme-options theme-options--3" role="radiogroup" aria-label="Tema">
+                <button type="button" class="theme-option" role="radio" data-theme-choice="light">
+                  <span class="theme-preview theme-preview--light" aria-hidden="true"><i></i><b></b><b></b></span>
+                  <span class="theme-option__name">Claro</span>
+                  <span class="theme-option__desc">Fundo branco</span>
+                </button>
+                <button type="button" class="theme-option" role="radio" data-theme-choice="dark">
+                  <span class="theme-preview theme-preview--dark" aria-hidden="true"><i></i><b></b><b></b></span>
+                  <span class="theme-option__name">Escuro</span>
+                  <span class="theme-option__desc">Fundo preto</span>
+                </button>
+                <button type="button" class="theme-option" role="radio" data-theme-choice="system">
+                  <span class="theme-preview theme-preview--system" aria-hidden="true"><i></i><b></b><b></b></span>
+                  <span class="theme-option__name">Automático</span>
+                  <span class="theme-option__desc">Igual ao aparelho</span>
+                </button>
+              </div>
+            </section>
+
+            <section class="settings__section">
+              <h3 class="settings__label">Cor do layout</h3>
+              <p class="settings__hint">Muda o fundo, a barra lateral e os cartões.</p>
+              <div class="layouts" id="settings-layouts" role="radiogroup" aria-label="Cor do layout"></div>
+            </section>
+
+            <section class="settings__section">
+              <h3 class="settings__label">Cor dos botões</h3>
+              <div class="swatches" id="settings-swatches" role="radiogroup" aria-label="Cor dos botões"></div>
+            </section>
+
+            <section class="settings__section">
+              <h3 class="settings__label">Tamanho do texto</h3>
+              <div class="segmented" id="text-size" role="radiogroup" aria-label="Tamanho do texto">
+                <button type="button" role="radio" data-size="p"><span style="font-size:.8rem">A</span> Pequeno</button>
+                <button type="button" role="radio" data-size="m"><span style="font-size:.95rem">A</span> Normal</button>
+                <button type="button" role="radio" data-size="g"><span style="font-size:1.15rem">A</span> Grande</button>
+              </div>
+              <p class="settings__hint settings__hint--after">O tema e o tamanho do texto ficam salvos neste aparelho. As cores vão junto com a sua conta.</p>
+            </section>
+          </div>
+
+          <!-- Chat -->
+          <div class="settings__panel" data-panel="chat" role="tabpanel" hidden>
+            <section class="settings__section">
+              <h3 class="settings__label">Jeito de responder</h3>
+              <div class="styles" id="reply-styles" role="radiogroup" aria-label="Jeito de responder">
+                <button type="button" role="radio" data-style="equilibrado"><strong>Equilibrado</strong><span>Nem curto, nem longo demais</span></button>
+                <button type="button" role="radio" data-style="curto"><strong>Curto e direto</strong><span>Vai direto ao ponto</span></button>
+                <button type="button" role="radio" data-style="detalhado"><strong>Detalhado</strong><span>Explica passo a passo</span></button>
+                <button type="button" role="radio" data-style="descontraido"><strong>Descontraído</strong><span>Leve e bem-humorado</span></button>
+              </div>
+            </section>
+
+            <section class="settings__section">
+              <h3 class="settings__label">O que a SaturnIA deve saber sobre você</h3>
+              <form class="set-form" id="about-form">
+                <label class="sr-only" for="about">Sobre você</label>
+                <textarea id="about" rows="4" maxlength="1000" placeholder="Ex.: Sou estudante de TI em São Paulo. Prefiro exemplos em Python e respostas sem muita formalidade."></textarea>
+                <div class="set-form__bar">
+                  <p class="settings__msg" id="about-msg" role="status"><span id="about-count">0</span>/1000</p>
+                  <button type="submit" class="name-form__save" id="about-save">Salvar</button>
+                </div>
+              </form>
+            </section>
+
+            <section class="settings__section">
+              <h3 class="settings__label">Preferências</h3>
+              <label class="toggle">
+                <span><strong>Aprender sobre mim</strong><small>Guarda fatos que você conta (veja em Memórias).</small></span>
+                <input type="checkbox" id="pref-memory" role="switch" />
+              </label>
+              <label class="toggle">
+                <span><strong>Enviar com Enter</strong><small>Desligado: Enter pula linha e Ctrl+Enter envia.</small></span>
+                <input type="checkbox" id="pref-enter" role="switch" />
+              </label>
+              <label class="toggle">
+                <span><strong>Mostrar sugestões no início</strong><small>As ideias de perguntas na tela de nova conversa.</small></span>
+                <input type="checkbox" id="pref-suggestions" role="switch" />
+              </label>
+            </section>
+          </div>
+
+          <!-- Conta e dados -->
+          <div class="settings__panel" data-panel="dados" role="tabpanel" hidden>
+            <section class="settings__section">
+              <h3 class="settings__label">Aparelhos</h3>
+              <div class="action-row">
+                <span><strong>Sair dos outros aparelhos</strong><small id="sessions-info">Encerra o login em todos os outros lugares.</small></span>
+                <button type="button" class="ghost-btn" id="logout-others">Sair dos outros</button>
+              </div>
+            </section>
+
+            <section class="settings__section">
+              <h3 class="settings__label">Seus dados</h3>
+              <div class="action-row">
+                <span><strong>Baixar meus dados</strong><small>Conversas, memórias e perfil em um arquivo .json.</small></span>
+                <button type="button" class="ghost-btn" id="export-data">Baixar</button>
+              </div>
+              <div class="action-row">
+                <span><strong>Apagar todas as conversas</strong><small>As memórias e as imagens continuam.</small></span>
+                <button type="button" class="ghost-btn ghost-btn--danger" id="clear-convs">Apagar</button>
+              </div>
+              <p class="settings__msg" id="data-msg" role="status"></p>
+            </section>
+
+            <section class="settings__section">
+              <h3 class="settings__label">Zona de perigo</h3>
+              <div class="danger-zone">
+                <strong>Excluir minha conta</strong>
+                <p>Apaga para sempre a conta, as conversas, as memórias e as imagens. Não dá para desfazer.</p>
+                <button type="button" class="ghost-btn ghost-btn--danger" id="delete-open">Excluir conta</button>
+                <form class="set-form" id="delete-form" hidden novalidate>
+                  <label class="set-field" id="delete-pw-field">
+                    <span>Sua senha</span>
+                    <input id="delete-pw" type="password" autocomplete="current-password" />
+                  </label>
+                  <label class="set-field">
+                    <span>Digite <b>EXCLUIR</b> para confirmar</span>
+                    <input id="delete-confirm" autocomplete="off" spellcheck="false" />
+                  </label>
+                  <div class="set-form__bar">
+                    <p class="settings__msg settings__msg--danger" id="delete-msg" role="alert"></p>
+                    <button type="submit" class="danger-btn" id="delete-submit">Excluir para sempre</button>
+                  </div>
+                </form>
+              </div>
+            </section>
+          </div>
         </div>
-      </section>
+      </div>
     </div>
   </div>
 
@@ -343,12 +537,12 @@
   </div>
 
   <script src="https://accounts.google.com/gsi/client" async></script>
-  <script src="js/config.js?v=14"></script>
-  <script src="js/markdown.js?v=14"></script>
-  <script src="js/eye.js?v=14"></script>
-  <script src="js/planet.js?v=14"></script>
+  <script src="js/config.js?v=15"></script>
+  <script src="js/markdown.js?v=15"></script>
+  <script src="js/eye.js?v=15"></script>
+  <script src="js/planet.js?v=15"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-  <script src="js/app.js?v=14"></script>
-  <script src="js/tools.js?v=14"></script>
+  <script src="js/app.js?v=15"></script>
+  <script src="js/tools.js?v=15"></script>
 </body>
 </html>

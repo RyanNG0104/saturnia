@@ -9,7 +9,7 @@
    uma versão mais nova publicada, ela baixa a página atual e recarrega
    uma única vez. A cada publicação, aumente APP_VERSION e version.json juntos. */
 (function checkForUpdate() {
-  const APP_VERSION = '14';
+  const APP_VERSION = '15';
   fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' })
     .then((r) => (r.ok ? r.json() : null))
     .then((data) => {
@@ -49,7 +49,10 @@
     explore_unknown: 'Não entendi que tipo de lugar você procura. Tente algo como "cafés", "farmácia" ou "parque".',
     explore_place: 'Não encontrei esse endereço ou bairro. Tente escrever de outro jeito, com a cidade.',
     explore_busy: 'O serviço de mapas está ocupado agora. Tente de novo em instantes.',
-    need_location: 'Me diga onde: use sua localização ou escreva o bairro (ex.: "cafés em Pinheiros").',
+    wrong_password: 'A senha atual está incorreta.',
+    about_too_long: 'Esse texto passou de 1000 caracteres. Tente resumir.',
+    confirm_required: 'Digite EXCLUIR para confirmar.',
+    need_location:'Me diga onde: use sua localização ou escreva o bairro (ex.: "cafés em Pinheiros").',
     default: 'Algo deu errado do meu lado. Tente de novo.',
   };
 
@@ -254,15 +257,19 @@
     showAuth('Sua sessão expirou. Entre de novo.');
   }
 
-  $('logout').addEventListener('click', async () => {
-    try { await api('/auth/logout', { method: 'POST' }); } catch (e) {}
+  function signOut(message) {
     if (controller) controller.abort();
     saveToken(null);
     user = null;
     conversations = [];
     currentId = null;
     thread.innerHTML = '';
-    showAuth();
+    showAuth(message);
+  }
+
+  $('logout').addEventListener('click', async () => {
+    try { await api('/auth/logout', { method: 'POST' }); } catch (e) {}
+    signOut();
   });
 
   function updateUserUI() {
@@ -284,6 +291,7 @@
   async function enterApp(u) {
     user = u;
     applyAccent(u.accent);
+    applyLayout(u.layout);
     authEl.hidden = true;
     shell.hidden = false;
     ensureEye();
@@ -590,45 +598,135 @@
   });
 
   /* =========================================================
-     Configurações (tema claro / escuro)
+     Configurações: Perfil, Aparência, Chat, Conta e dados
      ========================================================= */
   const settingsModal = $('settings');
+  const root = document.documentElement;
   const themeButtons = document.querySelectorAll('[data-theme-choice]');
+  const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+  };
 
-  function currentTheme() {
-    return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+  /* ---------- Abas ---------- */
+  const tabs = settingsModal.querySelectorAll('.settings__tab');
+  function showTab(name) {
+    tabs.forEach((t) => {
+      const on = t.dataset.tab === name;
+      t.classList.toggle('is-active', on);
+      t.setAttribute('aria-selected', String(on));
+    });
+    settingsModal.querySelectorAll('.settings__panel').forEach((p) => { p.hidden = p.dataset.panel !== name; });
+    settingsModal.querySelector('.settings__panels').scrollTop = 0;
+    if (name === 'perfil' || name === 'dados') loadStats();
   }
+  tabs.forEach((t) => t.addEventListener('click', () => showTab(t.dataset.tab)));
 
-  function applyTheme(theme) {
-    document.documentElement.dataset.theme = theme;
-    try { localStorage.setItem('saturnia-theme', theme); } catch (e) {}
+  /* ---------- Tema: claro, escuro ou automático ---------- */
+  function themeChoice() { return store.get('saturnia-theme', 'light'); }
+  function applyTheme(choice) {
+    if (!['light', 'dark', 'system'].includes(choice)) choice = 'light';
+    const theme = choice === 'system' ? (darkQuery.matches ? 'dark' : 'light') : choice;
+    root.dataset.theme = theme;
+    store.set('saturnia-theme', choice);
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.content = theme === 'dark' ? '#09070d' : '#ffffff';
-    themeButtons.forEach((b) => b.setAttribute('aria-checked', String(b.dataset.themeChoice === theme)));
+    if (meta) meta.content = getComputedStyle(root).getPropertyValue('--bg').trim() || (theme === 'dark' ? '#09070d' : '#ffffff');
+    themeButtons.forEach((b) => b.setAttribute('aria-checked', String(b.dataset.themeChoice === choice)));
   }
+  themeButtons.forEach((b) => b.addEventListener('click', () => applyTheme(b.dataset.themeChoice)));
+  darkQuery.addEventListener('change', () => { if (themeChoice() === 'system') applyTheme('system'); });
 
-  function openSettings() {
-    setSidebar(false);
-    applyTheme(currentTheme()); // marca a opção atual
-    $('settings-name').value = user ? user.name : '';
-    $('settings-name-msg').textContent = '';
-    markSwatches();
-    settingsModal.hidden = false;
-    $('settings-close').focus();
+  /* ---------- Cor do layout (fundo, barra lateral e cartões) ---------- */
+  const LAYOUTS = [
+    { id: 'lavanda', name: 'Lavanda', desc: 'Padrão', light: ['#ffffff', '#faf7ff', '#ece3fc'], dark: ['#09070d', '#0f0c15', '#231934'] },
+    { id: 'ameixa', name: 'Ameixa', desc: 'Roxo intenso', light: ['#fdfaff', '#f5ecff', '#e6d5fb'], dark: ['#110a1b', '#180e26', '#2d1a45'] },
+    { id: 'neutro', name: 'Neutro', desc: 'Cinza limpo', light: ['#ffffff', '#f7f7f8', '#e9e9ec'], dark: ['#0b0b0c', '#121214', '#232327'] },
+    { id: 'noite', name: 'Noite', desc: 'Azul-marinho', light: ['#ffffff', '#f5f8fd', '#e2e9f5'], dark: ['#070b14', '#0c1322', '#18233a'] },
+    { id: 'contraste', name: 'Contraste', desc: 'Preto e branco puros', light: ['#ffffff', '#ffffff', '#e5e5e5'], dark: ['#000000', '#000000', '#1f1f1f'] },
+  ];
+  function currentLayout() { return root.dataset.layout || 'lavanda'; }
+  function applyLayout(id) {
+    const valid = LAYOUTS.some((l) => l.id === id) ? id : 'lavanda';
+    if (valid === 'lavanda') root.removeAttribute('data-layout');
+    else root.dataset.layout = valid;
+    store.set('saturnia-layout', valid);
+    document.querySelectorAll('.layout').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.layout === valid)));
+    applyTheme(themeChoice()); // atualiza a cor da barra do navegador
   }
+  (function renderLayouts() {
+    const box = $('settings-layouts');
+    for (const l of LAYOUTS) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'layout';
+      b.dataset.layout = l.id;
+      b.setAttribute('role', 'radio');
+      b.style.setProperty('--l1', l.light[0]); b.style.setProperty('--l2', l.light[1]); b.style.setProperty('--l3', l.light[2]);
+      b.style.setProperty('--d1', l.dark[0]); b.style.setProperty('--d2', l.dark[1]); b.style.setProperty('--d3', l.dark[2]);
+      b.innerHTML = `<span class="layout__preview" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span class="layout__name">${l.name}</span><span class="layout__desc">${l.desc}</span>`;
+      b.addEventListener('click', async () => {
+        const previous = currentLayout();
+        applyLayout(l.id);
+        try { await saveMe({ layout: l.id }); } catch (e) { applyLayout(previous); }
+      });
+      box.appendChild(b);
+    }
+  })();
 
-  // Cor dos botões: aplica na hora e salva na conta
+  /* ---------- Cor dos botões ---------- */
   renderSwatches($('settings-swatches'), async (id) => {
     const previous = currentAccent();
     applyAccent(id);
-    try {
-      await saveMe({ accent: id });
-    } catch (e) {
-      applyAccent(previous);
-    }
+    try { await saveMe({ accent: id }); } catch (e) { applyAccent(previous); }
   });
 
-  // Trocar o nome
+  /* ---------- Tamanho do texto ---------- */
+  function applyTextSize(size) {
+    if (!['p', 'm', 'g'].includes(size)) size = 'm';
+    if (size === 'm') root.removeAttribute('data-text');
+    else root.dataset.text = size;
+    store.set('saturnia-text', size);
+    $('text-size').querySelectorAll('button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.size === size)));
+  }
+  $('text-size').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => applyTextSize(b.dataset.size)));
+
+  /* ---------- Perfil ---------- */
+  const fmtDate = (t) => new Date(t).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  function fillProfile() {
+    if (!user) return;
+    $('profile-avatar').textContent = (user.name || '?').trim().charAt(0).toUpperCase();
+    $('profile-name').textContent = user.name;
+    $('profile-email').textContent = user.email;
+    const badges = [];
+    if (user.google) badges.push('<span class="badge">Google</span>');
+    if (user.hasPassword) badges.push('<span class="badge">E-mail e senha</span>');
+    if (user.createdAt) badges.push(`<span class="badge badge--soft">Desde ${fmtDate(user.createdAt)}</span>`);
+    $('profile-badges').innerHTML = badges.join('');
+    // Senha: trocar (quem tem) ou criar (quem entrou só com o Google)
+    $('pw-current-field').hidden = !user.hasPassword;
+    $('pw-title').textContent = user.hasPassword ? 'Trocar senha' : 'Criar uma senha';
+    $('pw-hint').textContent = user.hasPassword
+      ? 'Ao trocar, você continua conectado aqui e sai dos outros aparelhos.'
+      : 'Você entrou com o Google. Crie uma senha para também poder entrar com e-mail e senha.';
+    $('pw-save').textContent = user.hasPassword ? 'Trocar senha' : 'Criar senha';
+    $('pw-username').value = user.email;
+    $('delete-pw-field').hidden = !user.hasPassword;
+  }
+
+  async function loadStats() {
+    try {
+      const s = await api('/me/stats');
+      const item = (n, label) => `<div><dt>${label}</dt><dd>${n.toLocaleString('pt-BR')}</dd></div>`;
+      $('profile-stats').innerHTML = item(s.conversations, 'Conversas') + item(s.messages, 'Mensagens')
+        + item(s.memories, 'Memórias') + item(s.images, 'Imagens');
+      $('sessions-info').textContent = s.sessions > 1
+        ? `Você está conectado em ${s.sessions} lugares. Encerra todos, menos este.`
+        : 'Você só está conectado aqui.';
+    } catch (e) {}
+  }
+
   $('name-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const msg = $('settings-name-msg');
@@ -638,6 +736,7 @@
     btn.disabled = true;
     try {
       await saveMe({ name });
+      fillProfile();
       msg.textContent = `Pronto! Vou te chamar de ${name}.`;
     } catch (err) {
       msg.textContent = ERRORS[err.code] || ERRORS.default;
@@ -645,13 +744,223 @@
       btn.disabled = false;
     }
   });
+
+  // Força da senha (só uma dica visual)
+  function passwordScore(p) {
+    let s = 0;
+    if (p.length >= 8) s++;
+    if (p.length >= 12) s++;
+    if (/[a-z]/.test(p) && /[A-Z]/.test(p)) s++;
+    if (/\d/.test(p)) s++;
+    if (/[^\w\s]/.test(p)) s++;
+    return Math.min(4, s);
+  }
+  $('pw-new').addEventListener('input', () => {
+    const p = $('pw-new').value;
+    const meter = $('pw-meter');
+    const score = p ? Math.max(1, passwordScore(p)) : 0;
+    meter.style.width = `${score * 25}%`;
+    meter.dataset.score = String(score);
+  });
+  $('pw-show').addEventListener('change', (e) => {
+    ['pw-current', 'pw-new', 'pw-confirm'].forEach((id) => { $(id).type = e.target.checked ? 'text' : 'password'; });
+  });
+  $('pw-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const msg = $('pw-msg');
+    msg.className = 'settings__msg';
+    const current = $('pw-current').value;
+    const password = $('pw-new').value;
+    if (user.hasPassword && !current) { msg.textContent = 'Digite a sua senha atual.'; return; }
+    if (password.length < 8) { msg.textContent = ERRORS.weak_password; return; }
+    if (password !== $('pw-confirm').value) { msg.textContent = 'As duas senhas novas não são iguais.'; return; }
+    if (user.hasPassword && password === current) { msg.textContent = 'A nova senha precisa ser diferente da atual.'; return; }
+    const btn = $('pw-save');
+    btn.disabled = true;
+    try {
+      const created = !user.hasPassword;
+      const data = await api('/me/password', { method: 'POST', body: { current, password } });
+      user = data.user;
+      $('pw-form').reset();
+      $('pw-meter').style.width = '0';
+      ['pw-current', 'pw-new', 'pw-confirm'].forEach((id) => { $(id).type = 'password'; });
+      fillProfile();
+      msg.textContent = created ? 'Senha criada! Agora você também pode entrar com e-mail e senha.' : 'Senha trocada! Os outros aparelhos foram desconectados.';
+      msg.classList.add('is-ok');
+      loadStats();
+    } catch (err) {
+      if (err.code !== 'unauthorized') msg.textContent = ERRORS[err.code] || ERRORS.default;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  /* ---------- Chat ---------- */
+  function markStyles() {
+    const active = (user && user.replyStyle) || 'equilibrado';
+    $('reply-styles').querySelectorAll('button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.style === active)));
+  }
+  $('reply-styles').querySelectorAll('button').forEach((b) => b.addEventListener('click', async () => {
+    const previous = user.replyStyle;
+    user.replyStyle = b.dataset.style;
+    markStyles();
+    try { await saveMe({ replyStyle: b.dataset.style }); } catch (e) { user.replyStyle = previous; markStyles(); }
+  }));
+
+  const about = $('about');
+  about.addEventListener('input', () => { $('about-msg').innerHTML = `<span id="about-count">${about.value.length}</span>/1000`; });
+  $('about-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = $('about-save');
+    btn.disabled = true;
+    try {
+      await saveMe({ about: about.value });
+      $('about-msg').textContent = about.value.trim() ? 'Salvo! Vou levar isso em conta nas respostas.' : 'Apagado.';
+    } catch (err) {
+      if (err.code !== 'unauthorized') $('about-msg').textContent = ERRORS[err.code] || ERRORS.default;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  const prefMemory = $('pref-memory');
+  prefMemory.addEventListener('change', async () => {
+    try { await saveMe({ memoryOn: prefMemory.checked }); } catch (e) { prefMemory.checked = !prefMemory.checked; }
+  });
+
+  // Preferências deste aparelho
+  let enterToSend = store.get('saturnia-enter', '1') === '1';
+  $('pref-enter').addEventListener('change', (e) => {
+    enterToSend = e.target.checked;
+    store.set('saturnia-enter', enterToSend ? '1' : '0');
+  });
+  function applySuggestions(show) {
+    $('suggestions').hidden = !show;
+    store.set('saturnia-suggestions', show ? '1' : '0');
+  }
+  $('pref-suggestions').addEventListener('change', (e) => applySuggestions(e.target.checked));
+
+  /* ---------- Conta e dados ---------- */
+  function confirmClick(btn, label, action) {
+    btn.addEventListener('click', async () => {
+      if (!btn.classList.contains('is-confirm')) {
+        btn.classList.add('is-confirm');
+        btn.textContent = 'Tem certeza?';
+        setTimeout(() => { btn.classList.remove('is-confirm'); btn.textContent = label; }, 4000);
+        return;
+      }
+      btn.classList.remove('is-confirm');
+      btn.textContent = label;
+      btn.disabled = true;
+      try { await action(); } finally { btn.disabled = false; }
+    });
+  }
+  const dataMsg = $('data-msg');
+
+  confirmClick($('logout-others'), 'Sair dos outros', async () => {
+    try {
+      const r = await api('/auth/logout-others', { method: 'POST' });
+      dataMsg.textContent = r.ended ? `Pronto! ${r.ended === 1 ? '1 aparelho foi desconectado' : `${r.ended} aparelhos foram desconectados`}.` : 'Não havia outros aparelhos conectados.';
+      loadStats();
+    } catch (err) { if (err.code !== 'unauthorized') dataMsg.textContent = ERRORS[err.code] || ERRORS.default; }
+  });
+
+  $('export-data').addEventListener('click', async () => {
+    const btn = $('export-data');
+    btn.disabled = true;
+    btn.textContent = 'Preparando…';
+    try {
+      const data = await api('/me/export');
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `saturnia-dados-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      dataMsg.textContent = 'Arquivo baixado.';
+    } catch (err) {
+      if (err.code !== 'unauthorized') dataMsg.textContent = ERRORS[err.code] || ERRORS.default;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Baixar';
+    }
+  });
+
+  confirmClick($('clear-convs'), 'Apagar', async () => {
+    try {
+      await api('/conversations', { method: 'DELETE' });
+      conversations = [];
+      renderConversations();
+      newChat();
+      dataMsg.textContent = 'Todas as conversas foram apagadas.';
+      loadStats();
+    } catch (err) { if (err.code !== 'unauthorized') dataMsg.textContent = ERRORS[err.code] || ERRORS.default; }
+  });
+
+  $('delete-open').addEventListener('click', () => {
+    $('delete-open').hidden = true;
+    $('delete-form').hidden = false;
+    $(user.hasPassword ? 'delete-pw' : 'delete-confirm').focus();
+  });
+  $('delete-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const msg = $('delete-msg');
+    const confirm = $('delete-confirm').value.trim().toUpperCase();
+    if (confirm !== 'EXCLUIR') { msg.textContent = 'Digite EXCLUIR para confirmar.'; return; }
+    if (user.hasPassword && !$('delete-pw').value) { msg.textContent = 'Digite a sua senha.'; return; }
+    const btn = $('delete-submit');
+    btn.disabled = true;
+    btn.textContent = 'Excluindo…';
+    try {
+      await api('/me', { method: 'DELETE', body: { confirm, password: $('delete-pw').value } });
+      closeSettings();
+      signOut('Sua conta foi excluída. Até mais!');
+    } catch (err) {
+      if (err.code !== 'unauthorized') msg.textContent = ERRORS[err.code] || ERRORS.default;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Excluir para sempre';
+    }
+  });
+
+  /* ---------- Abrir e fechar ---------- */
+  function openSettings(tab) {
+    setSidebar(false);
+    applyTheme(themeChoice());
+    applyLayout(currentLayout());
+    applyTextSize(store.get('saturnia-text', 'm'));
+    markSwatches();
+    markStyles();
+    fillProfile();
+    $('settings-name').value = user ? user.name : '';
+    $('settings-email').value = user ? user.email : '';
+    about.value = (user && user.about) || '';
+    $('about-msg').innerHTML = `<span id="about-count">${about.value.length}</span>/1000`;
+    prefMemory.checked = !user || user.memoryOn !== false;
+    $('pref-enter').checked = enterToSend;
+    $('pref-suggestions').checked = !$('suggestions').hidden;
+    ['settings-name-msg', 'pw-msg', 'data-msg', 'delete-msg'].forEach((id) => { $(id).textContent = ''; });
+    $('pw-form').reset();
+    $('pw-meter').style.width = '0';
+    $('delete-form').reset();
+    $('delete-form').hidden = true;
+    $('delete-open').hidden = false;
+    settingsModal.hidden = false;
+    showTab(typeof tab === 'string' ? tab : 'perfil');
+    $('settings-close').focus();
+  }
   function closeSettings() { settingsModal.hidden = true; }
 
-  themeButtons.forEach((b) => b.addEventListener('click', () => applyTheme(b.dataset.themeChoice)));
-  $('open-settings').addEventListener('click', openSettings);
+  $('open-settings').addEventListener('click', () => openSettings());
   $('settings-close').addEventListener('click', closeSettings);
   settingsModal.addEventListener('click', (e) => { if (e.target === settingsModal) closeSettings(); });
-  applyTheme(currentTheme());
+  // Clicar no seu nome (na barra lateral) abre o perfil
+  document.querySelector('.user__info').addEventListener('click', () => openSettings('perfil'));
+
+  applyTheme(themeChoice());
+  applySuggestions(store.get('saturnia-suggestions', '1') === '1');
   memClear.addEventListener('click', async () => {
     if (!memClear.classList.contains('is-confirm')) {
       memClear.classList.add('is-confirm');
@@ -855,7 +1164,8 @@
 
   input.addEventListener('input', autosize);
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+    if (enterToSend || e.ctrlKey || e.metaKey) {
       e.preventDefault();
       if (!controller) send(input.value);
     }

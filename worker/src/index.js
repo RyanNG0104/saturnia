@@ -6,7 +6,14 @@
      POST   /auth/login         entra       { email, password }
      POST   /auth/google        entra com o Google { credential }
      POST   /auth/logout        sai
+     POST   /auth/logout-others sai dos outros aparelhos
      GET    /me                 usuário atual
+     POST   /me                 salva perfil e preferências
+     DELETE /me                 exclui a conta { password?, confirm }
+     GET    /me/stats           números da conta
+     GET    /me/export          baixa todos os dados (JSON)
+     POST   /me/password        troca/cria a senha { current?, password }
+     DELETE /conversations      apaga todas as conversas
      GET    /conversations      lista de conversas
      GET    /conversations/:id  mensagens de uma conversa
      DELETE /conversations/:id  apaga uma conversa
@@ -128,6 +135,19 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const ACCENTS = new Set(["roxo", "azul", "verde", "rosa", "laranja", "ciano"]);
 
+const LAYOUTS = new Set(["lavanda", "ameixa", "neutro", "noite", "contraste"]);
+const REPLY_STYLES = {
+  equilibrado: "",
+  curto: "Estilo pedido pela pessoa: respostas curtas e diretas, sem rodeios. Use poucas frases e só detalhe se ela pedir.",
+  detalhado: "Estilo pedido pela pessoa: respostas completas e detalhadas, com explicações passo a passo e exemplos.",
+  descontraido: "Estilo pedido pela pessoa: tom descontraído e bem-humorado, como uma amiga, sem perder a precisão.",
+};
+const MAX_ABOUT_CHARS = 1000;
+
+// Colunas do usuário usadas em todo lugar
+const USER_FIELDS = ["id", "name", "email", "accent", "onboarded", "about", "reply_style", "memory_on", "layout", "created_at", "google_sub"];
+const userCols = (p = "") => `${USER_FIELDS.map((c) => p + c).join(", ")}, (${p}password_hash <> '') AS has_password`;
+
 function publicUser(u) {
   return {
     id: u.id,
@@ -135,7 +155,17 @@ function publicUser(u) {
     email: u.email,
     accent: ACCENTS.has(u.accent) ? u.accent : "roxo",
     onboarded: Boolean(u.onboarded),
+    about: u.about || "",
+    replyStyle: u.reply_style in REPLY_STYLES ? u.reply_style : "equilibrado",
+    memoryOn: u.memory_on === undefined || u.memory_on === null ? true : Boolean(u.memory_on),
+    layout: LAYOUTS.has(u.layout) ? u.layout : "lavanda",
+    createdAt: u.created_at || null,
+    google: Boolean(u.google_sub),
+    hasPassword: Boolean(u.has_password),
   };
+}
+async function loadUser(env, id) {
+  return env.DB.prepare(`SELECT ${userCols()} FROM users WHERE id = ?`).bind(id).first();
 }
 
 // Salva as preferências do usuário: nome, cor dos botões e "primeiro acesso concluído"
@@ -154,12 +184,124 @@ async function updateMe(request, env, user, cors) {
     sets.push("accent = ?");
     values.push(body.accent);
   }
+  if (body.layout !== undefined) {
+    if (!LAYOUTS.has(body.layout)) return json({ error: "invalid_request" }, 400, cors);
+    sets.push("layout = ?");
+    values.push(body.layout);
+  }
+  if (body.replyStyle !== undefined) {
+    if (!Object.hasOwn(REPLY_STYLES, body.replyStyle)) return json({ error: "invalid_request" }, 400, cors);
+    sets.push("reply_style = ?");
+    values.push(body.replyStyle);
+  }
+  if (body.about !== undefined) {
+    const about = String(body.about).trim();
+    if (about.length > MAX_ABOUT_CHARS) return json({ error: "about_too_long" }, 400, cors);
+    sets.push("about = ?");
+    values.push(about);
+  }
+  if (body.memoryOn !== undefined) {
+    sets.push("memory_on = ?");
+    values.push(body.memoryOn ? 1 : 0);
+  }
   if (body.onboarded === true) sets.push("onboarded = 1");
   if (!sets.length) return json({ error: "invalid_request" }, 400, cors);
 
   await env.DB.prepare(`UPDATE users SET ${sets.join(", ")} WHERE id = ?`).bind(...values, user.id).run();
-  const updated = await env.DB.prepare("SELECT id, name, email, accent, onboarded FROM users WHERE id = ?").bind(user.id).first();
-  return json({ user: publicUser(updated) }, 200, cors);
+  return json({ user: publicUser(await loadUser(env, user.id)) }, 200, cors);
+}
+
+// Confere a senha atual de quem tem senha (contas só do Google não têm)
+async function checkPassword(env, userId, password) {
+  const row = await env.DB.prepare("SELECT password_hash, password_salt FROM users WHERE id = ?").bind(userId).first();
+  if (!row || !row.password_hash) return false;
+  const check = await hashPassword(String(password || ""), row.password_salt);
+  return safeEqual(check.hash, row.password_hash);
+}
+
+// Troca a senha (ou cria uma, em contas feitas com o Google) e sai dos outros aparelhos
+async function changePassword(request, env, user, cors) {
+  const body = (await readJson(request)) || {};
+  const password = String(body.password || "");
+  if (password.length < 8 || password.length > 200) return json({ error: "weak_password" }, 400, cors);
+  if (user.has_password && !(await checkPassword(env, user.id, body.current))) {
+    return json({ error: "wrong_password" }, 403, cors);
+  }
+  const { hash, salt } = await hashPassword(password);
+  await env.DB.batch([
+    env.DB.prepare("UPDATE users SET password_hash = ?, password_salt = ? WHERE id = ?").bind(hash, salt, user.id),
+    env.DB.prepare("DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?").bind(user.id, user.tokenHash),
+  ]);
+  return json({ user: publicUser(await loadUser(env, user.id)) }, 200, cors);
+}
+
+async function logoutOthers(env, user, cors) {
+  const res = await env.DB.prepare("DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?").bind(user.id, user.tokenHash).run();
+  return json({ ok: true, ended: (res.meta && res.meta.changes) || 0 }, 200, cors);
+}
+
+async function accountStats(env, user, cors) {
+  const results = await env.DB.batch([
+    env.DB.prepare("SELECT COUNT(*) AS n FROM conversations WHERE user_id = ?").bind(user.id),
+    env.DB.prepare("SELECT COUNT(*) AS n FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)").bind(user.id),
+    env.DB.prepare("SELECT COUNT(*) AS n FROM memories WHERE user_id = ?").bind(user.id),
+    env.DB.prepare("SELECT COUNT(*) AS n FROM images WHERE user_id = ?").bind(user.id),
+    env.DB.prepare("SELECT COUNT(*) AS n FROM sessions WHERE user_id = ? AND expires_at > ?").bind(user.id, Date.now()),
+  ]);
+  const [conversations, messages, memories, images, sessions] = results.map((r) => (r.results[0] && r.results[0].n) || 0);
+  return json({ conversations, messages, memories, images, sessions }, 200, cors);
+}
+
+// Todos os dados da pessoa em um arquivo (as imagens vão só com a descrição)
+async function exportData(env, user, cors) {
+  const [convs, msgs, mems, imgs] = await env.DB.batch([
+    env.DB.prepare("SELECT id, title, created_at, updated_at FROM conversations WHERE user_id = ? ORDER BY updated_at DESC").bind(user.id),
+    env.DB.prepare(
+      `SELECT m.conversation_id, m.role, m.content, m.created_at FROM messages m
+       JOIN conversations c ON c.id = m.conversation_id WHERE c.user_id = ? ORDER BY m.id`,
+    ).bind(user.id),
+    env.DB.prepare("SELECT content, created_at FROM memories WHERE user_id = ? ORDER BY id").bind(user.id),
+    env.DB.prepare("SELECT prompt, created_at FROM images WHERE user_id = ? ORDER BY created_at DESC").bind(user.id),
+  ]);
+  const iso = (t) => (t ? new Date(t).toISOString() : null);
+  const byConv = new Map(convs.results.map((c) => [c.id, { title: c.title, created_at: iso(c.created_at), messages: [] }]));
+  for (const m of msgs.results) {
+    const c = byConv.get(m.conversation_id);
+    if (c) c.messages.push({ role: m.role, content: m.content, created_at: iso(m.created_at) });
+  }
+  return json({
+    exported_at: new Date().toISOString(),
+    profile: { name: user.name, email: user.email, created_at: iso(user.created_at), about: user.about || "" },
+    memories: mems.results.map((m) => ({ content: m.content, created_at: iso(m.created_at) })),
+    images: imgs.results.map((i) => ({ prompt: i.prompt, created_at: iso(i.created_at) })),
+    conversations: [...byConv.values()],
+  }, 200, cors);
+}
+
+async function deleteAllConversations(env, user, cors) {
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)").bind(user.id),
+    env.DB.prepare("DELETE FROM conversations WHERE user_id = ?").bind(user.id),
+  ]);
+  return json({ ok: true }, 200, cors);
+}
+
+// Exclui a conta e tudo dela. Pede a senha (se tiver) e a palavra EXCLUIR.
+async function deleteAccount(request, env, user, cors) {
+  const body = (await readJson(request)) || {};
+  if (String(body.confirm || "").trim().toUpperCase() !== "EXCLUIR") return json({ error: "confirm_required" }, 400, cors);
+  if (user.has_password && !(await checkPassword(env, user.id, body.password))) {
+    return json({ error: "wrong_password" }, 403, cors);
+  }
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)").bind(user.id),
+    env.DB.prepare("DELETE FROM conversations WHERE user_id = ?").bind(user.id),
+    env.DB.prepare("DELETE FROM memories WHERE user_id = ?").bind(user.id),
+    env.DB.prepare("DELETE FROM images WHERE user_id = ?").bind(user.id),
+    env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(user.id),
+    env.DB.prepare("DELETE FROM users WHERE id = ?").bind(user.id),
+  ]);
+  return json({ ok: true }, 200, cors);
 }
 
 async function createSession(env, userId) {
@@ -175,11 +317,12 @@ async function currentUser(request, env) {
   const auth = request.headers.get("Authorization") || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
   if (!token) return null;
+  const tokenHash = await sha256(token);
   const row = await env.DB.prepare(
-    `SELECT u.id, u.name, u.email, u.accent, u.onboarded FROM sessions s JOIN users u ON u.id = s.user_id
+    `SELECT ${userCols("u.")} FROM sessions s JOIN users u ON u.id = s.user_id
      WHERE s.token_hash = ? AND s.expires_at > ?`,
-  ).bind(await sha256(token), Date.now()).first();
-  return row ? { ...row, tokenHash: await sha256(token) } : null;
+  ).bind(tokenHash, Date.now()).first();
+  return row ? { ...row, tokenHash } : null;
 }
 
 async function register(request, env, cors) {
@@ -196,13 +339,13 @@ async function register(request, env, cors) {
   if (exists) return json({ error: "email_taken" }, 409, cors);
 
   const { hash, salt } = await hashPassword(password);
-  const user = { id: crypto.randomUUID(), name, email, accent: "roxo", onboarded: 0 };
+  const id = crypto.randomUUID();
   await env.DB.prepare(
     "INSERT INTO users (id, email, name, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-  ).bind(user.id, email, name, hash, salt, Date.now()).run();
+  ).bind(id, email, name, hash, salt, Date.now()).run();
 
-  const token = await createSession(env, user.id);
-  return json({ token, user: publicUser(user) }, 201, cors);
+  const token = await createSession(env, id);
+  return json({ token, user: publicUser(await loadUser(env, id)) }, 201, cors);
 }
 
 async function login(request, env, cors) {
@@ -226,7 +369,7 @@ async function login(request, env, cors) {
   await env.DB.prepare("DELETE FROM sessions WHERE expires_at < ?").bind(Date.now()).run();
 
   const token = await createSession(env, user.id);
-  return json({ token, user: publicUser(user) }, 200, cors);
+  return json({ token, user: publicUser(await loadUser(env, user.id)) }, 200, cors);
 }
 
 /* ---------------------------------------------------------
@@ -352,7 +495,7 @@ async function googleLogin(request, env, cors) {
   }
 
   const token = await createSession(env, user.id);
-  return json({ token, user: publicUser(user) }, 200, cors);
+  return json({ token, user: publicUser(await loadUser(env, user.id)) }, 200, cors);
 }
 
 /* ---------------------------------------------------------
@@ -524,6 +667,11 @@ async function chat(request, env, ctx, user, cors) {
   while (history.length && history[0].role !== "user") history.shift();
 
   let system = `${BASE_PROMPT}\n\nVocê está conversando com ${user.name}.`;
+  const style = REPLY_STYLES[user.reply_style];
+  if (style) system += `\n\n${style}`;
+  if (user.about) {
+    system += `\n\nO que ${user.name} pediu para você saber (escrito por essa pessoa nas configurações; siga como preferência, sem contrariar as regras acima):\n${user.about}`;
+  }
   if (memoriesRes.results.length) {
     system += `\n\nO que você lembra sobre essa pessoa:\n${memoriesRes.results.map((m) => `- ${m.content}`).join("\n")}`;
   }
@@ -587,7 +735,7 @@ async function chat(request, env, ctx, user, cors) {
         env.DB.prepare("UPDATE conversations SET updated_at = ? WHERE id = ?").bind(Date.now(), conv.id),
       ]);
     }
-    await extractMemories(env, user.id, message);
+    if (user.memory_on !== 0) await extractMemories(env, user.id, message);
   })());
 
   return new Response(readable, {
@@ -638,10 +786,25 @@ export default {
         await env.DB.prepare("DELETE FROM sessions WHERE token_hash = ?").bind(user.tokenHash).run();
         return json({ ok: true }, 200, cors);
       }
+      if (pathname === "/auth/logout-others" && method === "POST") return await logoutOthers(env, user, cors);
       if (pathname === "/me" && method === "GET") return json({ user: publicUser(user) }, 200, cors);
       if (pathname === "/me" && method === "POST") return await updateMe(request, env, user, cors);
+      if (pathname === "/me" && method === "DELETE") {
+        if (isRateLimited(`pw:${user.id}`, 5)) return json({ error: "rate_limited" }, 429, cors);
+        return await deleteAccount(request, env, user, cors);
+      }
+      if (pathname === "/me/password" && method === "POST") {
+        if (isRateLimited(`pw:${user.id}`, 5)) return json({ error: "rate_limited" }, 429, cors);
+        return await changePassword(request, env, user, cors);
+      }
+      if (pathname === "/me/stats" && method === "GET") return await accountStats(env, user, cors);
+      if (pathname === "/me/export" && method === "GET") {
+        if (isRateLimited(`export:${user.id}`, 3)) return json({ error: "rate_limited" }, 429, cors);
+        return await exportData(env, user, cors);
+      }
 
       if (pathname === "/conversations" && method === "GET") return await listConversations(env, user, cors);
+      if (pathname === "/conversations" && method === "DELETE") return await deleteAllConversations(env, user, cors);
       const convMatch = pathname.match(/^\/conversations\/([\w-]{1,64})$/);
       if (convMatch && method === "GET") return await getConversation(env, user, convMatch[1], cors);
       if (convMatch && method === "DELETE") return await deleteConversation(env, user, convMatch[1], cors);

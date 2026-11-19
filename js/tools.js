@@ -39,9 +39,16 @@
     const el = document.createElement('figure');
     el.className = `shot${pending ? ' is-pending' : ''}`;
     el.innerHTML = `
-      <div class="shot__img">${pending ? '<span class="shot__spinner"><img src="assets/jupiter.svg" alt=""></span><span class="shot__wait">Criando…</span>' : ''}</div>
+      <div class="shot__img">${pending ? '<canvas class="shot__planet" aria-hidden="true"></canvas><span class="shot__wait">Criando…</span>' : ''}</div>
       <figcaption><p></p><div class="shot__actions"></div></figcaption>`;
     el.querySelector('p').textContent = img.prompt;
+    if (pending && window.ParticlePlanet) {
+      // Júpiter de partículas girando enquanto a imagem é criada
+      requestAnimationFrame(() => {
+        const planet = new window.ParticlePlanet(el.querySelector('.shot__planet'), 'jupiter');
+        planet.setState('busy');
+      });
+    }
     if (!pending) fillCard(el, img);
     return el;
   }

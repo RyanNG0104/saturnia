@@ -103,6 +103,8 @@
     setState(state) { this.state = state; }
 
     frame(now) {
+      // Canvas removido da página (ex.: card que terminou de carregar): para de animar
+      if (!this.canvas.isConnected) return;
       // Só desenha quando está visível (economiza bateria)
       if (this.canvas.offsetParent !== null) this.draw(now);
       else this.lastNow = now;

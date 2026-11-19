@@ -29,6 +29,7 @@
    ========================================================= */
 
 import { listImages, getImage, deleteImage, createImage, explore } from "./tools.js";
+import { portfolioChat } from "./portfolio.js";
 
 const DEFAULT_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 const DEFAULT_MEMORY_MODEL = "@cf/meta/llama-3.1-8b-instruct-fp8";
@@ -776,6 +777,12 @@ export default {
       if (pathname === "/auth/google" && method === "POST") {
         if (isRateLimited(`auth:${ip}`, 10)) return json({ error: "rate_limited" }, 429, cors);
         return await googleLogin(request, env, cors);
+      }
+
+      // Assistente do portfólio: público, sem conta e sem salvar nada
+      if (pathname === "/portfolio/chat" && method === "POST") {
+        if (isRateLimited(`pf:${ip}`, 8)) return json({ error: "rate_limited" }, 429, cors);
+        return await portfolioChat(request, env, ctx, cors);
       }
 
       // Daqui para baixo precisa estar logado

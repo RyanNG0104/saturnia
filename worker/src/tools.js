@@ -252,25 +252,48 @@ async function findPlaces(category, center, radius) {
 export async function explore(request, env, user, cors) {
   const body = (await readJson(request)) || {};
   const query = String(body.query || "").trim().slice(0, 200);
-  if (query.length < 2) return json({ error: "invalid_request" }, 400, cors);
+  // Categoria escolhida na lista de opções (ex.: depois de buscar um endereço)
+  const chosen = CATEGORIES.find((c) => c.id === body.category) || null;
+  if (!chosen && query.length < 2) return json({ error: "invalid_request" }, 400, cors);
 
   // 1. Que tipo de lugar?
-  let category = matchCategory(query);
+  const keywordCategory = matchCategory(query);
+  let category = chosen || keywordCategory;
+
+  // Só um endereço/bairro, sem dizer o que procura? Devolve o lugar para a pessoa escolher na lista.
+  const needsChoice = async () => {
+    const place = await geocode(query);
+    return place ? json({ needCategory: true, center: place }, 200, cors) : null;
+  };
+  const looksLikeAddress = query.includes(",") || /\d/.test(query)
+    || /\b(rua|r|avenida|av|alameda|al|praca|travessa|estrada|rodovia|largo|bairro|cep|vila|jardim)\b/.test(normalize(query));
+  if (!category && looksLikeAddress) {
+    const res = await needsChoice();
+    if (res) return res;
+  }
   if (!category) {
     try { category = await pickCategoryWithAI(env, query); } catch {}
   }
-  if (!category) return json({ error: "explore_unknown" }, 400, cors);
+  if (!category) {
+    const res = await needsChoice(); // talvez seja um nome de lugar ("Pinheiros", "Copacabana")
+    return res || json({ error: "explore_unknown" }, 400, cors);
+  }
 
-  // 2. Onde? Lugar escrito na pergunta, ou a localização compartilhada
+  // 2. Onde? Ponto escolhido, lugar escrito na pergunta, ou a localização compartilhada
   let center = null;
-  const placeText = placeFromQuery(query) || String(body.place || "").trim().slice(0, 120);
-  if (placeText) {
+  const placeText = chosen ? "" : placeFromQuery(query) || String(body.place || "").trim().slice(0, 120);
+  if (chosen && Number.isFinite(body.lat) && Number.isFinite(body.lon)) {
+    center = { lat: body.lat, lon: body.lon, label: String(body.label || "Perto de você").slice(0, 120) };
+  } else if (placeText) {
     center = await geocode(placeText);
     if (!center) return json({ error: "explore_place" }, 404, cors);
   } else if (Number.isFinite(body.lat) && Number.isFinite(body.lon)) {
     center = { lat: body.lat, lon: body.lon, label: "Perto de você" };
   } else {
-    return json({ error: "need_location" }, 400, cors);
+    // Sem localização: talvez o texto seja um lugar ("Copacabana") → mostra a lista de opções
+    // (se a pessoa disse claramente o que quer, ex. "farmácia", pede a localização)
+    const res = chosen || keywordCategory ? null : await needsChoice();
+    return res || json({ error: "need_location" }, 400, cors);
   }
 
   // 3. Busca os lugares, ampliando o raio se vier pouca coisa
@@ -293,7 +316,7 @@ export async function explore(request, env, user, cors) {
     try {
       summary = (await runText(env, [
         { role: "system", content: "Você é a SaturnIA, uma assistente simpática. Escreva em português do Brasil, em no máximo 2 frases curtas e naturais, uma recomendação a partir da lista de lugares, falando direto com a pessoa (ex.: \"O mais perto é…\"). Não se apresente nem diga seu nome. Use SOMENTE as informações da lista; não invente notas, preços, comidas ou avaliações. Sem markdown." },
-        { role: "user", content: `Pedido: "${query}"\nLugares encontrados, do mais perto para o mais longe:\n${list}` },
+        { role: "user", content: `Pedido: "${query || `${category.label} perto de ${center.label}`}"\nLugares encontrados, do mais perto para o mais longe:\n${list}` },
       ], 140, true)).trim();
     } catch {}
   }

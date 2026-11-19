@@ -9,7 +9,7 @@
    uma versão mais nova publicada, ela baixa a página atual e recarrega
    uma única vez. A cada publicação, aumente APP_VERSION e version.json juntos. */
 (function checkForUpdate() {
-  const APP_VERSION = '13';
+  const APP_VERSION = '14';
   fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' })
     .then((r) => (r.ok ? r.json() : null))
     .then((data) => {

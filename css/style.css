@@ -1127,3 +1127,19 @@ body.is-busy .send .icon-stop { display: block; }
 
 /* Júpiter de partículas no card enquanto a imagem é criada */
 .shot__planet { position: absolute; inset: 6%; width: 88%; height: 88%; display: block; }
+
+/* Lista de opções do Explorar (depois de buscar um endereço) */
+.cat-picker { margin: .2rem 0 1rem; animation: msg-in .35s var(--ease); }
+.cat-picker__title { margin: 0 .2rem .7rem; font-weight: 600; color: var(--ink); }
+.cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: .5rem; }
+.cat {
+  display: flex; align-items: center; gap: .55rem;
+  padding: .6rem .75rem;
+  border: 1px solid var(--line); border-radius: 12px;
+  background: var(--bg);
+  font-size: .86rem; color: var(--ink); text-align: left;
+  transition: border-color .2s, transform .2s var(--ease), background-color .2s;
+}
+.cat:hover { border-color: var(--violet-3); transform: translateY(-1px); }
+.cat.is-active { border-color: var(--violet); background: var(--active); color: var(--accent-ink); }
+.cat__icon { font-size: 1.1rem; line-height: 1; }

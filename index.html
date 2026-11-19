@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&family=Inter:wght@300;400;500;600&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
-  <link rel="stylesheet" href="css/style.css?v=13" />
+  <link rel="stylesheet" href="css/style.css?v=14" />
   <script>
     // Aplica o tema salvo antes de desenhar a página (evita piscar branco)
     (function () {
@@ -221,7 +221,7 @@
 
           <form class="tool-box" id="exp-form">
             <label class="sr-only" for="exp-query">O que você procura</label>
-            <textarea id="exp-query" rows="1" maxlength="200" placeholder="Ex.: cafés para trabalhar em Pinheiros"></textarea>
+            <textarea id="exp-query" rows="1" maxlength="200" placeholder="Ex.: cafés em Pinheiros, ou só um endereço: Rua Augusta, 1500"></textarea>
             <div class="tool-box__bar">
               <button type="button" class="loc-btn" id="exp-locate">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-12a7 7 0 0 1 14 0c0 5.8-7 12-7 12z"/><circle cx="12" cy="9" r="2.5"/></svg>
@@ -231,6 +231,10 @@
             </div>
           </form>
           <p class="tool-msg" id="exp-msg" role="status"></p>
+          <div class="cat-picker" id="cat-picker" hidden>
+            <p class="cat-picker__title" id="cat-title"></p>
+            <div class="cat-grid" id="cat-grid"></div>
+          </div>
           <p class="exp-summary" id="exp-summary" hidden></p>
 
           <section class="map-wrap">
@@ -339,12 +343,12 @@
   </div>
 
   <script src="https://accounts.google.com/gsi/client" async></script>
-  <script src="js/config.js?v=13"></script>
-  <script src="js/markdown.js?v=13"></script>
-  <script src="js/eye.js?v=13"></script>
-  <script src="js/planet.js?v=13"></script>
+  <script src="js/config.js?v=14"></script>
+  <script src="js/markdown.js?v=14"></script>
+  <script src="js/eye.js?v=14"></script>
+  <script src="js/planet.js?v=14"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-  <script src="js/app.js?v=13"></script>
-  <script src="js/tools.js?v=13"></script>
+  <script src="js/app.js?v=14"></script>
+  <script src="js/tools.js?v=14"></script>
 </body>
 </html>

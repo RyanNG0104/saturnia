@@ -190,6 +190,48 @@
     }).addTo(map);
   }
 
+  // Opções mostradas depois de buscar um endereço (ou de usar a localização)
+  const CHOICES = [
+    ['cafe', '☕', 'Cafés'], ['restaurante', '🍽️', 'Restaurantes'], ['pizzaria', '🍕', 'Pizzarias'],
+    ['lanchonete', '🍔', 'Lanchonetes'], ['padaria', '🥐', 'Padarias'], ['bar', '🍻', 'Bares'],
+    ['sorvete', '🍦', 'Sorveterias'], ['mercado', '🛒', 'Mercados'], ['farmacia', '💊', 'Farmácias'],
+    ['hospital', '🏥', 'Saúde'], ['academia', '🏋️', 'Academias'], ['parque', '🌳', 'Parques'],
+    ['hotel', '🏨', 'Hospedagem'], ['museu', '🖼️', 'Cultura'], ['cinema', '🎬', 'Cinema e teatro'],
+    ['livraria', '📚', 'Livrarias'], ['coworking', '💻', 'Coworking'], ['pet', '🐾', 'Pet'],
+    ['posto', '⛽', 'Postos'], ['banco', '🏦', 'Bancos'],
+  ];
+  const picker = $('cat-picker');
+  let pickerCenter = null;
+  let addressMarker = null;
+
+  $('cat-grid').innerHTML = CHOICES.map(([id, icon, label]) =>
+    `<button type="button" class="cat" data-cat="${id}"><span class="cat__icon" aria-hidden="true">${icon}</span><span>${label}</span></button>`).join('');
+
+  function showPicker(center, title) {
+    pickerCenter = center;
+    $('cat-title').textContent = title;
+    picker.hidden = false;
+    expSummary.hidden = true;
+    markers.forEach((m) => m.remove());
+    markers = [];
+    cards.innerHTML = '';
+    ensureMap();
+    if (addressMarker) addressMarker.remove();
+    if (center.label !== 'Perto de você') {
+      addressMarker = L.marker([center.lat, center.lon], {
+        icon: L.divIcon({ className: 'pin', html: '<span class="pin__n">📍</span><span class="pin__name">' + esc(center.label) + '</span>', iconSize: null, iconAnchor: [14, 14] }),
+      }).addTo(map);
+    }
+    map.setView([center.lat, center.lon], 16);
+  }
+
+  $('cat-grid').addEventListener('click', (e) => {
+    const b = e.target.closest('.cat');
+    if (!b || !pickerCenter) return;
+    picker.querySelectorAll('.cat').forEach((c) => c.classList.toggle('is-active', c === b));
+    runSearch({ category: b.dataset.cat, lat: pickerCenter.lat, lon: pickerCenter.lon, label: pickerCenter.label });
+  });
+
   function formatDistance(m) {
     return m < 1000 ? `${m} m` : `${(m / 1000).toFixed(1).replace('.', ',')} km`;
   }
@@ -207,8 +249,7 @@
         if (meMarker) meMarker.remove();
         meMarker = L.circleMarker([coords.lat, coords.lon], { radius: 8, color: '#fff', weight: 3, fillColor: '#7c3aed', fillOpacity: 1 })
           .addTo(map).bindTooltip('Você está aqui');
-        map.setView([coords.lat, coords.lon], 15);
-        expQuery.focus();
+        showPicker({ lat: coords.lat, lon: coords.lon, label: 'Perto de você' }, 'O que você quer encontrar perto de você?');
       },
       () => { expMsg.textContent = 'Não consegui acessar sua localização. Você pode escrever o bairro na busca, ex.: "cafés em Pinheiros".'; },
       { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 },
@@ -283,22 +324,37 @@
     });
 
     if (coords) bounds.push([coords.lat, coords.lon]);
+    if (addressMarker && pickerCenter) bounds.push([pickerCenter.lat, pickerCenter.lon]);
     map.fitBounds(bounds, { paddingTopLeft: [40, 40], paddingBottomRight: [40, 190], maxZoom: 16 });
   }
 
-  $('exp-form').addEventListener('submit', async (e) => {
+  $('exp-form').addEventListener('submit', (e) => {
     e.preventDefault();
     const query = expQuery.value.trim();
-    if (query.length < 2) { expMsg.textContent = 'O que você procura? Ex.: "farmácia" ou "parques em Moema".'; return; }
+    if (query.length < 2) { expMsg.textContent = 'O que você procura? Ex.: "farmácia", "parques em Moema" ou só um endereço.'; return; }
+    // Busca nova digitada: some a lista do endereço anterior
+    picker.hidden = true;
+    pickerCenter = null;
+    if (addressMarker) { addressMarker.remove(); addressMarker = null; }
+    const body = { query };
+    if (coords) { body.lat = coords.lat; body.lon = coords.lon; }
+    runSearch(body);
+  });
+
+  async function runSearch(body) {
     const btn = $('exp-submit');
     btn.disabled = true;
     btn.textContent = 'Buscando…';
     expMsg.textContent = 'Procurando lugares…';
     setBusy('explore', true, 'Procurando lugares');
     try {
-      const body = { query };
-      if (coords) { body.lat = coords.lat; body.lon = coords.lon; }
-      render(await S().api('/explore', { method: 'POST', body }));
+      const data = await S().api('/explore', { method: 'POST', body });
+      if (data.needCategory) {
+        expMsg.textContent = '';
+        showPicker(data.center, `O que você quer encontrar perto de ${data.center.label}?`);
+      } else {
+        render(data);
+      }
     } catch (ex) {
       if (ex.code !== 'unauthorized') expMsg.textContent = err(ex);
     } finally {
@@ -306,7 +362,7 @@
       btn.textContent = 'Buscar';
       setBusy('explore', false, 'Explorando o mapa');
     }
-  });
+  }
 
   /* ---------- Planetas de partículas no topo de cada aba ---------- */
   const planets = {};
